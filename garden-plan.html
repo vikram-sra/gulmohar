@@ -1,0 +1,390 @@
+<title>Gulmohar Garden</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,560;9..144,650&family=Libre+Franklin:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --paper: #F6F1E3;
+    --paper-2: #EEE6D2;
+    --lawn: #E3E7CB;
+    --clearing: #EEE4C3;
+    --ink: #253226;
+    --ink-soft: #5C6C58;
+    --line: #93A088;
+    --line-soft: #CBD1BB;
+    --gulmohar: #D9502F;
+    --gulmohar-deep: #B03D22;
+    --gulmohar-bright: #F2A98C;
+    --maple: #C98A2E;
+    --maple-light: #E3B65C;
+    --pond: #5E8A86;
+    --pond-deep: #3F6A66;
+    --bed: #D7DEC0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #12160F;
+      --paper-2: #1A2016;
+      --lawn: #1B2416;
+      --clearing: #262010;
+      --ink: #EAE5D3;
+      --ink-soft: #9CAA92;
+      --line: #46543F;
+      --line-soft: #2B3527;
+      --gulmohar: #E8724A;
+      --gulmohar-deep: #C25A38;
+      --gulmohar-bright: #7A3A2C;
+      --maple: #D9A34E;
+      --maple-light: #7A5B26;
+      --pond: #6FA39D;
+      --pond-deep: #345653;
+      --bed: #29331F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #12160F;
+    --paper-2: #1A2016;
+    --lawn: #1B2416;
+    --clearing: #262010;
+    --ink: #EAE5D3;
+    --ink-soft: #9CAA92;
+    --line: #46543F;
+    --line-soft: #2B3527;
+    --gulmohar: #E8724A;
+    --gulmohar-deep: #C25A38;
+    --gulmohar-bright: #7A3A2C;
+    --maple: #D9A34E;
+    --maple-light: #7A5B26;
+    --pond: #6FA39D;
+    --pond-deep: #345653;
+    --bed: #29331F;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Libre Franklin", ui-sans-serif, system-ui, sans-serif;
+    padding: clamp(1.25rem, 3.5vw, 3rem);
+  }
+  .sheet { max-width: 1180px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    color: var(--ink-soft);
+    text-transform: uppercase;
+    margin: 0 0 0.7rem;
+  }
+  h1 {
+    font-family: "Fraunces", Georgia, serif;
+    font-optical-sizing: auto;
+    font-weight: 650;
+    font-size: clamp(2.3rem, 5vw, 3.5rem);
+    line-height: 1.02;
+    margin: 0 0 0.85rem;
+    text-wrap: balance;
+    color: var(--ink);
+  }
+  .subhead {
+    max-width: 62ch;
+    font-size: 1.05rem;
+    line-height: 1.55;
+    color: var(--ink-soft);
+    margin: 0 0 1.4rem;
+  }
+  .meta-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.1rem;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.74rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding-top: 1rem;
+    border-top: 1px solid var(--line-soft);
+  }
+  .meta-row span:not(:last-child)::after {
+    content: "·";
+    margin-left: 1.1rem;
+    color: var(--line);
+  }
+
+  main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+    gap: 2.25rem;
+    margin-top: 2.25rem;
+    align-items: start;
+  }
+  @media (max-width: 880px) {
+    main { grid-template-columns: 1fr; }
+  }
+
+  .plan-panel {
+    background: var(--paper-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    padding: 0.9rem;
+  }
+  .plan-panel svg { display: block; width: 100%; height: auto; }
+
+  .plan-feature { transition: filter .25s ease, opacity .25s ease; }
+  .plan-feature.is-dim { opacity: 0.32; }
+  .plan-feature.is-active { filter: drop-shadow(0 0 7px color-mix(in srgb, var(--gulmohar) 55%, transparent)); }
+
+  aside { display: flex; flex-direction: column; gap: 1.5rem; }
+  .card {
+    background: var(--paper-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 14px;
+    padding: 1.1rem 1.2rem 1.25rem;
+  }
+  .card h2 {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin: 0 0 0.9rem;
+  }
+
+  .key-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.85rem; }
+  .key-list li {
+    display: flex; align-items: flex-start; gap: 0.65rem;
+    padding: 0.35rem; margin: -0.35rem; border-radius: 8px;
+    cursor: default;
+  }
+  .key-list li:hover { background: var(--lawn); }
+  .badge {
+    flex: none; width: 22px; height: 22px; border-radius: 50%;
+    background: var(--ink); color: var(--paper);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.68rem; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    margin-top: 0.1rem;
+  }
+  .key-list .label { font-weight: 500; font-size: 0.92rem; line-height: 1.3; }
+  .key-list .sub { display: block; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.72rem; color: var(--ink-soft); font-style: italic; margin-top: 0.1rem; }
+
+  .notes p { font-size: 0.9rem; line-height: 1.62; color: var(--ink-soft); margin: 0; }
+
+  .plant-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+  .plant-list li { display: flex; align-items: baseline; gap: 0.55rem; font-size: 0.86rem; }
+  .swatch { flex: none; width: 10px; height: 10px; border-radius: 50%; margin-bottom: 1px; }
+  .plant-list .common { font-weight: 500; }
+  .plant-list .botanical { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 0.76rem; font-style: italic; color: var(--ink-soft); }
+
+  text { font-family: "IBM Plex Mono", ui-monospace, monospace; fill: var(--ink-soft); }
+  .label-strong { fill: var(--ink); font-weight: 600; }
+</style>
+
+<div class="sheet">
+  <header>
+    <p class="eyebrow">Landscape plan &middot; Revision 2</p>
+    <h1>Gulmohar Garden</h1>
+    <p class="subhead">Reworked from the original concept sketch: the perimeter ring walk is gone. In its place, four paths branch outward from the sitting circle beneath the gulmohar, so the centrepiece tree is also the garden's one true junction.</p>
+    <div class="meta-row">
+      <span>Plot approx. 30 &times; 30 ft</span>
+      <span>Scale &asymp; 1:100</span>
+      <span>Orientation N&uarr;</span>
+      <span>Ring path removed</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="plan-panel">
+      <svg viewBox="0 0 1000 1100" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Garden site plan showing a pond, gulmohar centrepiece, maple corner and gazebo linked by branching paths">
+
+        <!-- corner ticks -->
+        <g stroke="var(--line-soft)" stroke-width="2" fill="none">
+          <path d="M14,30 L14,14 L30,14"/>
+          <path d="M970,14 L986,14 L986,30"/>
+          <path d="M14,1070 L14,1086 L30,1086"/>
+          <path d="M986,1070 L986,1086 L970,1086"/>
+        </g>
+
+        <!-- boundary + lawn -->
+        <rect x="60" y="60" width="880" height="800" rx="90" ry="90" fill="var(--lawn)" stroke="var(--line)" stroke-width="5"/>
+
+        <!-- perimeter beds (broken, not a ring) -->
+        <g class="plan-feature" data-key="border">
+          <path d="M90,760 C80,800 95,835 140,838 C185,840 210,810 200,775 C192,748 105,735 90,760 Z" fill="var(--bed)" stroke="var(--line-soft)" stroke-width="2"/>
+          <g fill="var(--ink-soft)" opacity="0.55">
+            <circle cx="112" cy="782" r="3"/><circle cx="132" cy="806" r="3"/><circle cx="162" cy="790" r="3"/><circle cx="176" cy="816" r="3"/><circle cx="150" cy="826" r="3"/>
+          </g>
+          <path d="M935,450 C910,433 875,449 868,490 C860,535 885,575 920,578 C940,580 936,510 935,450 Z" fill="var(--bed)" stroke="var(--line-soft)" stroke-width="2"/>
+          <g fill="var(--ink-soft)" opacity="0.55">
+            <circle cx="896" cy="471" r="3"/><circle cx="906" cy="502" r="3"/><circle cx="890" cy="531" r="3"/><circle cx="911" cy="551" r="3"/><circle cx="880" cy="511" r="3"/>
+          </g>
+        </g>
+
+        <!-- paths: branching from the gulmohar clearing, no loop -->
+        <g fill="none" stroke-linecap="round">
+          <path d="M373,687 C340,740 310,790 300,845" stroke="var(--line-soft)" stroke-width="30"/>
+          <path d="M373,687 C340,740 310,790 300,845" stroke="var(--paper-2)" stroke-width="20"/>
+          <path d="M627,687 C670,715 700,732 735,758" stroke="var(--line-soft)" stroke-width="30"/>
+          <path d="M627,687 C670,715 700,732 735,758" stroke="var(--paper-2)" stroke-width="20"/>
+          <path d="M373,433 C320,400 280,350 262,295" stroke="var(--line-soft)" stroke-width="30"/>
+          <path d="M373,433 C320,400 280,350 262,295" stroke="var(--paper-2)" stroke-width="20"/>
+          <path d="M627,433 C670,400 720,350 760,305" stroke="var(--line-soft)" stroke-width="30"/>
+          <path d="M627,433 C670,400 720,350 760,305" stroke="var(--paper-2)" stroke-width="20"/>
+        </g>
+
+        <!-- pond -->
+        <g class="plan-feature" data-key="pond">
+          <path d="M100,190 C88,125 150,85 225,92 C305,100 350,140 362,195 C372,242 328,285 262,290 C198,296 112,262 100,190 Z" fill="var(--pond)" stroke="var(--pond-deep)" stroke-width="4"/>
+          <g stroke="var(--pond-deep)" stroke-width="3" fill="none">
+            <path d="M310,95 C305,70 312,50 320,35"/>
+            <path d="M330,102 C332,74 345,57 358,44"/>
+            <path d="M347,112 C354,87 370,74 384,62"/>
+          </g>
+          <g fill="var(--pond-deep)">
+            <circle cx="320" cy="35" r="4"/><circle cx="358" cy="44" r="4"/><circle cx="384" cy="62" r="4"/>
+          </g>
+          <circle cx="215" cy="192" r="15" fill="var(--paper-2)" stroke="var(--pond-deep)" stroke-width="2"/>
+          <g fill="var(--gulmohar-bright)">
+            <ellipse cx="215" cy="174" rx="6" ry="8"/><ellipse cx="231" cy="185" rx="6" ry="8"/><ellipse cx="225" cy="205" rx="6" ry="8"/><ellipse cx="203" cy="205" rx="6" ry="8"/><ellipse cx="199" cy="185" rx="6" ry="8"/>
+          </g>
+          <circle cx="240" cy="115" r="14" fill="var(--ink)"/>
+          <text x="240" y="120" text-anchor="middle" fill="var(--paper)" font-size="13" font-weight="600">2</text>
+          <line x1="150" y1="298" x2="150" y2="320" stroke="var(--ink-soft)" stroke-width="1.5"/>
+          <text x="150" y="336" text-anchor="middle" font-size="15" letter-spacing="0.06em">POND</text>
+        </g>
+
+        <!-- maple, corner accent -->
+        <g class="plan-feature" data-key="maple">
+          <circle cx="770" cy="220" r="95" fill="var(--maple-light)" stroke="var(--maple)" stroke-width="3"/>
+          <circle cx="770" cy="220" r="58" fill="var(--maple)"/>
+          <rect x="764" y="300" width="12" height="32" rx="3" fill="var(--ink-soft)"/>
+          <circle cx="855" cy="152" r="14" fill="var(--ink)"/>
+          <text x="855" y="157" text-anchor="middle" fill="var(--paper)" font-size="13" font-weight="600">4</text>
+          <line x1="770" y1="335" x2="770" y2="352" stroke="var(--ink-soft)" stroke-width="1.5"/>
+          <text x="770" y="368" text-anchor="middle" font-size="15" letter-spacing="0.06em">MAPLE</text>
+        </g>
+
+        <!-- gulmohar centrepiece -->
+        <g class="plan-feature" data-key="gulmohar">
+          <path d="M680,560 L627,433 L500,380 L373,433 L320,560 L373,687 L500,740 L627,687 Z" fill="var(--clearing)" stroke="var(--line-soft)" stroke-width="4"/>
+          <circle cx="500" cy="520" r="125" fill="var(--gulmohar)" stroke="var(--gulmohar-deep)" stroke-width="3"/>
+          <g fill="var(--gulmohar-bright)">
+            <circle cx="460" cy="465" r="8"/><circle cx="545" cy="452" r="8"/><circle cx="568" cy="515" r="8"/><circle cx="525" cy="585" r="8"/><circle cx="445" cy="568" r="8"/><circle cx="432" cy="500" r="8"/><circle cx="578" cy="560" r="8"/><circle cx="495" cy="435" r="8"/><circle cx="505" cy="505" r="7"/>
+          </g>
+          <rect x="492" y="632" width="16" height="48" rx="4" fill="var(--ink-soft)"/>
+          <circle cx="395" cy="418" r="16" fill="var(--ink)"/>
+          <text x="395" y="423" text-anchor="middle" fill="var(--paper)" font-size="14" font-weight="600">3</text>
+          <line x1="500" y1="318" x2="500" y2="392" stroke="var(--ink-soft)" stroke-width="1.5"/>
+          <text x="500" y="300" text-anchor="middle" class="label-strong" font-size="20" font-weight="600" letter-spacing="0.05em">GULMOHAR</text>
+          <text x="500" y="318" text-anchor="middle" font-size="12" font-style="italic">centrepiece &middot; Delonix regia</text>
+        </g>
+
+        <!-- gazebo -->
+        <g class="plan-feature" data-key="gazebo">
+          <path d="M680,700 L745,648 L810,700" fill="none" stroke="var(--ink)" stroke-width="3"/>
+          <g stroke="var(--ink-soft)" stroke-width="1.5">
+            <line x1="700" y1="700" x2="723" y2="663"/>
+            <line x1="722" y1="700" x2="738" y2="655"/>
+            <line x1="768" y1="700" x2="753" y2="655"/>
+            <line x1="789" y1="700" x2="767" y2="663"/>
+          </g>
+          <rect x="680" y="700" width="130" height="95" fill="var(--paper-2)" stroke="var(--ink)" stroke-width="3"/>
+          <rect x="735" y="760" width="20" height="35" fill="var(--lawn)" stroke="var(--ink)" stroke-width="2"/>
+          <circle cx="845" cy="770" r="28" fill="var(--bed)" stroke="var(--line)" stroke-width="2"/>
+          <g stroke="var(--ink-soft)" stroke-width="1.5">
+            <line x1="828" y1="755" x2="862" y2="785"/>
+            <line x1="828" y1="785" x2="862" y2="755"/>
+          </g>
+          <circle cx="665" cy="688" r="14" fill="var(--ink)"/>
+          <text x="665" y="693" text-anchor="middle" fill="var(--paper)" font-size="13" font-weight="600">5</text>
+          <line x1="745" y1="798" x2="745" y2="810" stroke="var(--ink-soft)" stroke-width="1.5"/>
+          <text x="745" y="826" text-anchor="middle" font-size="15" letter-spacing="0.06em">GAZEBO</text>
+        </g>
+
+        <!-- entry -->
+        <g class="plan-feature" data-key="entry">
+          <rect x="272" y="852" width="56" height="12" fill="var(--paper)"/>
+          <rect x="266" y="842" width="12" height="30" fill="var(--ink-soft)"/>
+          <rect x="322" y="842" width="12" height="30" fill="var(--ink-soft)"/>
+          <circle cx="300" cy="812" r="14" fill="var(--ink)"/>
+          <text x="300" y="817" text-anchor="middle" fill="var(--paper)" font-size="13" font-weight="600">1</text>
+          <text x="300" y="832" text-anchor="middle" font-size="14" letter-spacing="0.06em">ENTRY</text>
+        </g>
+
+        <!-- north arrow -->
+        <g>
+          <circle cx="500" cy="112" r="30" fill="none" stroke="var(--line-soft)" stroke-width="1.5"/>
+          <polygon points="500,90 511,120 500,111 489,120" fill="var(--ink)"/>
+          <text x="500" y="140" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">N</text>
+        </g>
+
+        <!-- scale bar -->
+        <g stroke="var(--ink)" font-size="12">
+          <line x1="70" y1="915" x2="330" y2="915" stroke-width="3"/>
+          <line x1="70" y1="908" x2="70" y2="922" stroke-width="3"/>
+          <line x1="150" y1="908" x2="150" y2="922" stroke-width="2"/>
+          <line x1="230" y1="908" x2="230" y2="922" stroke-width="2"/>
+          <line x1="330" y1="908" x2="330" y2="922" stroke-width="3"/>
+          <text x="70" y="938" text-anchor="middle" stroke="none">0</text>
+          <text x="150" y="938" text-anchor="middle" stroke="none">10</text>
+          <text x="230" y="938" text-anchor="middle" stroke="none">20</text>
+          <text x="330" y="938" text-anchor="middle" stroke="none">30 FT</text>
+        </g>
+
+        <!-- title block -->
+        <g text-anchor="end" font-size="12">
+          <text x="935" y="908" letter-spacing="0.08em">GULMOHAR GARDEN</text>
+          <text x="935" y="924" letter-spacing="0.04em">SITE PLAN &middot; REV. 2 &mdash; RING REMOVED</text>
+          <text x="935" y="940" letter-spacing="0.04em">SCALE &asymp; 1:100 &middot; N&uarr; &middot; 2026</text>
+        </g>
+      </svg>
+    </div>
+
+    <aside>
+      <div class="card">
+        <h2>Plan key</h2>
+        <ul class="key-list">
+          <li data-key="entry"><span class="badge">1</span><span><span class="label">Entry walk</span><span class="sub">stepping path from the street gate</span></span></li>
+          <li data-key="pond"><span class="badge">2</span><span><span class="label">Lily pond</span><span class="sub">marginal reeds, NE corner shade</span></span></li>
+          <li data-key="gulmohar"><span class="badge">3</span><span><span class="label">Gulmohar centrepiece</span><span class="sub">sitting circle beneath the canopy</span></span></li>
+          <li data-key="maple"><span class="badge">4</span><span><span class="label">Maple corner</span><span class="sub">underplanted with mondo grass</span></span></li>
+          <li data-key="gazebo"><span class="badge">5</span><span><span class="label">Gazebo</span><span class="sub">timber sit-out, shrub alongside</span></span></li>
+          <li data-key="border"><span class="badge">6</span><span><span class="label">Perimeter border</span><span class="sub">mixed low planting, boundary edge</span></span></li>
+        </ul>
+      </div>
+
+      <div class="card notes">
+        <h2>Design notes</h2>
+        <p>The original sketch traced a continuous ring path around the plot &mdash; a loop walked without ever choosing a direction. This revision removes it. Four paths now radiate from the sitting circle beneath the gulmohar, so the centrepiece tree doubles as the garden's junction: back to the entry, left to the pond, right to the maple, forward to the gazebo.</p>
+      </div>
+
+      <div class="card">
+        <h2>Plant palette</h2>
+        <ul class="plant-list">
+          <li><span class="swatch" style="background:var(--gulmohar)"></span><span class="common">Gulmohar</span><span class="botanical">Delonix regia</span></li>
+          <li><span class="swatch" style="background:var(--maple)"></span><span class="common">Japanese Maple</span><span class="botanical">Acer palmatum</span></li>
+          <li><span class="swatch" style="background:var(--pond)"></span><span class="common">Water Lily</span><span class="botanical">Nymphaea spp.</span></li>
+          <li><span class="swatch" style="background:var(--pond-deep)"></span><span class="common">Umbrella Sedge</span><span class="botanical">Cyperus alternifolius</span></li>
+          <li><span class="swatch" style="background:var(--bed)"></span><span class="common">Mondo Grass</span><span class="botanical">Ophiopogon japonicus</span></li>
+        </ul>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<script>
+  const rows = document.querySelectorAll('.key-list li');
+  const features = document.querySelectorAll('.plan-feature');
+  rows.forEach(row => {
+    const key = row.getAttribute('data-key');
+    row.addEventListener('mouseenter', () => {
+      features.forEach(f => {
+        if (f.getAttribute('data-key') === key) { f.classList.add('is-active'); f.classList.remove('is-dim'); }
+        else { f.classList.add('is-dim'); f.classList.remove('is-active'); }
+      });
+    });
+    row.addEventListener('mouseleave', () => {
+      features.forEach(f => { f.classList.remove('is-dim'); f.classList.remove('is-active'); });
+    });
+  });
+</script>

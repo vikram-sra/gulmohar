@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 1200" role="img" aria-label="Placeholder artwork">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#2b3444"/>
+      <stop offset="0.55" stop-color="#3d3a3a"/>
+      <stop offset="1" stop-color="#1a1d24"/>
+    </linearGradient>
+    <radialGradient id="w" cx="0.42" cy="0.36" r="0.55">
+      <stop offset="0" stop-color="#caa565" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#caa565" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="900" height="1200" fill="url(#g)"/>
+  <rect width="900" height="1200" fill="url(#w)"/>
+  <g fill="none" stroke="#ECE7DE" stroke-opacity="0.22" stroke-width="1.5">
+    <path d="M120 980 C 300 700, 380 520, 430 250"/>
+    <path d="M430 250 C 500 460, 620 640, 790 900"/>
+    <path d="M240 1040 C 420 880, 520 820, 780 780"/>
+  </g>
+  <circle cx="430" cy="250" r="8" fill="#CAA565" fill-opacity="0.7"/>
+  <text x="450" y="1130" text-anchor="middle" font-family="Georgia, serif" font-size="26"
+        fill="#ECE7DE" fill-opacity="0.35" letter-spacing="6">PLACEHOLDER</text>
+</svg>

@@ -1,0 +1,84 @@
+/* Shared by /work/ and /about/. Colours are pulled from the 3D scene -- the
+   night sky it opens on and the champagne gold of the dock accents -- so the
+   flat pages read as the same site rather than a separate document. */
+:root {
+  --ground: #0B1017;
+  --raised: #121924;
+  --ink:    #ECE7DE;
+  --muted:  #8E9AA8;
+  --gold:   #CAA565;
+  --rule:   #1E2836;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+  padding: 0 clamp(20px, 5vw, 64px) 120px;
+}
+a { color: inherit; }
+.wrap { max-width: 1080px; margin: 0 auto; }
+.measure { max-width: 62ch; }
+
+header.site {
+  display: flex; flex-wrap: wrap; gap: 14px 32px; align-items: baseline;
+  padding: clamp(26px, 5vw, 44px) 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: clamp(34px, 6vw, 64px);
+}
+header.site .name {
+  font-size: 1.06rem; letter-spacing: .18rem; text-transform: uppercase;
+  text-decoration: none; font-weight: 500;
+}
+nav { margin-left: auto; display: flex; gap: 22px; }
+nav a {
+  font-size: .83rem; letter-spacing: .13rem; text-transform: uppercase;
+  color: var(--muted); text-decoration: none;
+  padding-bottom: 2px; border-bottom: 1px solid transparent;
+}
+nav a:hover, nav a:focus-visible { color: var(--ink); border-bottom-color: var(--gold); }
+nav a[aria-current="page"] { color: var(--ink); border-bottom-color: var(--gold); }
+
+h1 {
+  font-family: Newsreader, Georgia, serif; font-weight: 400;
+  font-size: clamp(2.1rem, 5.5vw, 3.2rem); line-height: 1.06;
+  letter-spacing: -.01em; margin-bottom: 18px; text-wrap: balance;
+}
+h2 {
+  font-family: Newsreader, Georgia, serif; font-weight: 400; font-size: 1.5rem;
+  padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+  margin: clamp(38px, 6vw, 60px) 0 20px;
+}
+.lede { color: var(--muted); font-size: 1.04rem; margin-bottom: clamp(34px, 5vw, 56px); }
+
+.works {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: clamp(28px, 4vw, 48px); list-style: none;
+}
+figure { margin: 0; display: flex; flex-direction: column; gap: 14px; }
+figure .plate {
+  background: var(--raised); border: 1px solid var(--rule);
+  padding: 14px; display: flex; align-items: center; justify-content: center;
+}
+figure img { display: block; width: 100%; height: auto; }
+figcaption .t { font-family: Newsreader, Georgia, serif; font-size: 1.12rem; }
+figcaption .m { color: var(--muted); font-size: .88rem; }
+figcaption .s {
+  display: inline-block; margin-top: 8px; font-size: .72rem;
+  letter-spacing: .14rem; text-transform: uppercase; color: var(--gold);
+}
+
+.empty {
+  border: 1px dashed var(--rule); border-radius: 4px;
+  padding: clamp(22px, 4vw, 34px); color: var(--muted);
+}
+.empty p + p { margin-top: 12px; }
+
+footer.site {
+  margin-top: clamp(56px, 9vw, 96px); padding-top: 22px;
+  border-top: 1px solid var(--rule); color: var(--muted); font-size: .86rem;
+}
