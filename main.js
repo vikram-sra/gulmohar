@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import gsap from 'gsap';
 
 import { createTorontoSkySystem } from './src/sky/celestial.js';
-import { loadGarden } from './src/scene/garden.js';
+import { loadGarden, GARDEN_POINTS } from './src/scene/garden.js';
 import { SITE } from './src/content.js';
 
 // ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ const C_FLOOR_TWILIGHT = new THREE.Color(0xa4adb8);
 const C_FLOOR_MIDNIGHT = new THREE.Color(0x788494);
 const C_FLOOR_DAWN = new THREE.Color(0xe8d5c2);
 
-const AMBIENT_DAY_SPEED = 0.025;   // radians/sec of sun angle at rest
+const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
 
 class GulmoharApp {
@@ -81,7 +81,6 @@ class GulmoharApp {
         this.raycaster = new THREE.Raycaster();
         this.pointer = new THREE.Vector2(-2, -2);
 
-        this.time = 0;
         this.elapsed = 0;
         this.sunAngle = 0;
         this.daySpeed = AMBIENT_DAY_SPEED;
@@ -142,13 +141,18 @@ class GulmoharApp {
             depth: true
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.0 : 1.15));
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 1.5));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.08;
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFShadowMap;
-        this.renderer.shadowMap.autoUpdate = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        // The scene is static apart from the sun: nothing moves, so re-rendering
+        // both shadow maps every frame draws ~686k triangles for an identical
+        // result. animate() flips needsUpdate only when the sun has actually
+        // moved far enough to see, or when a light starts or stops casting.
+        this.renderer.shadowMap.autoUpdate = false;
+        this.renderer.shadowMap.needsUpdate = true;
         this.renderer.setClearColor(0x000000, 1);
         this.container.appendChild(this.renderer.domElement);
 
@@ -156,21 +160,29 @@ class GulmoharApp {
             const pmrem = new THREE.PMREMGenerator(this.renderer);
             const envScene = new RoomEnvironment();
             this.scene.environment = pmrem.fromScene(envScene).texture;
-            this.scene.environmentIntensity = 0.35;
+            this.scene.environmentIntensity = 0.13;   // 0.35 flooded shadowed foliage with fill
             envScene.dispose();
             pmrem.dispose();
         } catch (e) {
             console.warn('Environment map unavailable:', e);
         }
 
+        // RenderPass -> OutputPass. Tone mapping and the sRGB encode happen once,
+        // at the end, on a linear chain -- which is the whole point of OutputPass
+        // and the foundation the colour grading below is tuned against.
+        //
+        // There is no bloom pass. UnrealBloomPass only composites correctly when
+        // it is the *final* pass: in any earlier position it draws its glow into
+        // readBuffer without first blitting the base image (that blit lives
+        // inside its `if (this.renderToScreen)` branch), and here that measured
+        // as a black frame. It was earning very little anyway -- at threshold
+        // 0.98 / strength 0.08 the only thing above the line was the sun disc --
+        // and dropping it also removes a five-mip blur chain from every frame.
+        // If the sun wants a glow later, an additive sprite on the sun mesh is
+        // cheaper and far more controllable than a full-screen pass.
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
-        const div = isMobile ? 4 : 2;
-        this.bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(Math.floor(window.innerWidth / div), Math.floor(window.innerHeight / div)),
-            0.08, 0.3, 0.98   // threshold this high means only the sun and moon glow
-        );
-        this.composer.addPass(this.bloomPass);
+        this.composer.addPass(new OutputPass());
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.target.set(0, 2.8, 0);
@@ -234,7 +246,7 @@ class GulmoharApp {
         this.hemiLight = new THREE.HemisphereLight(0xfff3d8, 0x221c16, 0.28);
         this.scene.add(this.hemiLight);
 
-        const shadowRes = this.isMobile ? 512 : 1024;
+        const shadowRes = this.isMobile ? 1024 : 2048;
         // Compact shadow frustum tightly framing the garden for high performance and crisp shadows
         const d = 34;
 
@@ -334,6 +346,16 @@ class GulmoharApp {
         return new THREE.CanvasTexture(canvas);
     }
 
+    // A tiled ground plane seen at a grazing angle is exactly what anisotropic
+    // filtering is for, and nothing in this project was setting it. Capped at 8:
+    // past that the returns are invisible and some drivers get expensive.
+    _maxAnisotropy() {
+        if (this._aniso === undefined) {
+            this._aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        }
+        return this._aniso;
+    }
+
     setupEnvironment() {
         // Ground: compact garden disc (radius 42m) with soft organic edge fade
         const groundGeo = new THREE.CircleGeometry(42, 48);
@@ -356,6 +378,7 @@ class GulmoharApp {
         grassTex.wrapS = THREE.RepeatWrapping;
         grassTex.wrapT = THREE.RepeatWrapping;
         grassTex.repeat.set(10, 10);
+        grassTex.anisotropy = this._maxAnisotropy();
 
         this.groundMat = new THREE.MeshStandardMaterial({
             map: grassTex,
@@ -369,17 +392,26 @@ class GulmoharApp {
             polygonOffsetUnits: 1
         });
         this.groundMat.onBeforeCompile = (shader) => {
+            // Fed from GARDEN_POINTS so the cutout follows the pond if it moves,
+            // rather than being a second copy of its coordinates in a string.
+            shader.uniforms.uPondCentre = { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) };
             shader.vertexShader = 'varying vec3 vGroundWorldPos;\n' + shader.vertexShader.replace(
                 '#include <worldpos_vertex>',
                 '#include <worldpos_vertex>\n vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
             );
-            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\n' + shader.fragmentShader.replace(
+            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\nuniform vec2 uPondCentre;\n' + shader.fragmentShader.replace(
                 '#include <dithering_fragment>',
                 `#include <dithering_fragment>
                  float r = length(vGroundWorldPos.xz);
+                 // Two-stage horizon: mix toward the fog first, then fade alpha so
+                 // the real sky shows through. A colour mix alone cannot match a
+                 // horizon that is warm toward the sun and cool away from it.
+                 #ifdef USE_FOG
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(26.0, 40.0, r));
+                 #endif
                  gl_FragColor.a *= 1.0 - smoothstep(34.0, 42.0, r);
-                 // Seamless cutout for the sunken pond basin at (-23.0, -19.0)
-                 float distPond = length(vGroundWorldPos.xz - vec2(-23.0, -19.0));
+                 // Seamless cutout for the sunken pond basin.
+                 float distPond = length(vGroundWorldPos.xz - uPondCentre);
                  gl_FragColor.a *= smoothstep(5.4, 7.4, distPond);
                  if (gl_FragColor.a <= 0.002) discard;`
             );
@@ -401,6 +433,7 @@ class GulmoharApp {
                 gt.wrapS = THREE.RepeatWrapping;
                 gt.wrapT = THREE.RepeatWrapping;
                 gt.repeat.set(10, 10);
+                gt.anisotropy = this._maxAnisotropy();
                 gt.needsUpdate = true;
                 this.groundMat.map = gt;
                 this.groundMat.color.setHex(0xffffff);
@@ -410,10 +443,28 @@ class GulmoharApp {
                 gn.wrapS = THREE.RepeatWrapping;
                 gn.wrapT = THREE.RepeatWrapping;
                 gn.repeat.set(10, 10);
+                gn.anisotropy = this._maxAnisotropy();
                 gn.needsUpdate = true;
                 this.groundMat.normalMap = gn;
             }
             this.groundMat.needsUpdate = true;
+
+            const aniso = this.isMobile ? 4 : this._maxAnisotropy();
+            const seenTex = new Set();
+            garden.group.traverse((child) => {
+                if (!child.isMesh || !child.material) return;
+                const mats = Array.isArray(child.material) ? child.material : [child.material];
+                mats.forEach((m) => {
+                    ['map', 'normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'emissiveMap'].forEach((slot) => {
+                        const t = m[slot];
+                        if (t && !seenTex.has(t.uuid)) {
+                            seenTex.add(t.uuid);
+                            t.anisotropy = aniso;
+                            t.needsUpdate = true;
+                        }
+                    });
+                });
+            });
 
             garden.interactives.forEach(({ object, data }) => {
                 this._registerHover(object, data);
@@ -781,7 +832,6 @@ class GulmoharApp {
 
     animate() {
         requestAnimationFrame(() => this.animate());
-        this.time += 0.001;
 
         const nowMs = performance.now();
         // Clamped, so a backgrounded tab returning does not jump the sky by hours.
@@ -826,11 +876,23 @@ class GulmoharApp {
 
         const fullSunIntensity = 3.6 + Math.sin(Math.max(0.0, sky.sunAlt)) * 1.8;
         this.sunLight.intensity = sunFactor * fullSunIntensity;
-        this.sunLight.castShadow = sunFactor > 0.06;
+        this.sunLight.castShadow = sunFactor > 0.06 && sunFactor >= moonFactor;
 
         const fullMoonIntensity = Math.max(1.8, sky.mH * 2.5);
         this.moonLight.intensity = moonFactor * fullMoonIntensity;
-        this.moonLight.castShadow = moonFactor > 0.06;
+        this.moonLight.castShadow = moonFactor > 0.06 && moonFactor > sunFactor;
+
+        // Re-render the shadow maps only when the result would actually differ:
+        // the sun has swung far enough to move a shadow edge, or a light has
+        // just started/stopped casting (which leaves it with no map at all, so
+        // waiting for the angle gate would render a frame with no shadows).
+        const castingKey = (this.sunLight.castShadow ? 1 : 0) | (this.moonLight.castShadow ? 2 : 0);
+        if (Math.abs(this.sunAngle - (this._lastShadowAngle ?? -99)) > 0.008 ||
+            castingKey !== this._lastCastingKey) {
+            this._lastShadowAngle = this.sunAngle;
+            this._lastCastingKey = castingKey;
+            this.renderer.shadowMap.needsUpdate = true;
+        }
 
         const isMorning = Math.sin(this.sunAngle - Math.PI / 2) < 0;
         // Sun elevation warmth factor (1 at horizon/dawn/dusk, 0 high in sky)
@@ -884,7 +946,7 @@ class GulmoharApp {
         blend3Colors(this.groundMat.color, C_FLOOR_NOON, dayWeight, twiFloorColor, twiWeight, C_FLOOR_MIDNIGHT, nightWeight);
 
         if (!this.motionPaused) {
-            if (this.garden && this.garden.update) this.garden.update(this.time, dt);
+            if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt);
             if (this.dust) this.dust.rotation.y += 0.0002;
         }
 
@@ -892,11 +954,12 @@ class GulmoharApp {
         if (this.camera.position.y < 0.4) this.camera.position.y = 0.4;
 
         this.controls.update();
-        if (this.isMobile) {
-            this.renderer.render(this.scene, this.camera);
-        } else {
-            this.composer.render();
-        }
+        // One path for every device. Mobile used to bypass the composer, which
+        // meant it applied tone mapping and the sRGB encode differently from
+        // desktop -- so every colour tuned on a desktop was a colour phones
+        // never showed. With bloom gone the composer is a render plus one
+        // full-screen blit, which is affordable everywhere.
+        this.composer.render();
     }
 }
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getAssetUrl } from '../utils/paths.js';
 
 // Garden layout coordinates:
@@ -120,6 +121,64 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
             side: THREE.FrontSide
         });
     }
+}
+
+/**
+ * Collapse a model's static meshes into one mesh per material.
+ *
+ * The pond arrives as 405 separate meshes sharing four materials, and they are
+ * the whole reason the scene's draw calls swing between 27 and 459 depending on
+ * which way the camera faces. Merging is only safe *after* setupPond's
+ * name-based material lookup has run -- `water`, `riples` and `plane.002` are
+ * identified by node name, and merging first would destroy those names. So this
+ * runs last, and skips anything the caller still needs to address individually.
+ *
+ * Transforms are baked relative to `root`, not to the world, so the group's own
+ * placement and scale still apply afterwards.
+ */
+function mergeStaticByMaterial(root, skip = new Set()) {
+    root.updateMatrixWorld(true);
+    const inv = root.matrixWorld.clone().invert();
+    const groups = new Map();
+    const originals = [];
+
+    root.traverse((child) => {
+        if (!child.isMesh || child.isInstancedMesh || skip.has(child)) return;
+        if (!child.geometry || !child.material || Array.isArray(child.material)) return;
+        const key = child.material.uuid + '|' + Object.keys(child.geometry.attributes).sort().join(',');
+        if (!groups.has(key)) groups.set(key, { material: child.material, meshes: [] });
+        groups.get(key).meshes.push(child);
+        originals.push(child);
+    });
+
+    let merged = 0, removed = 0;
+    groups.forEach(({ material, meshes }) => {
+        if (meshes.length < 2) return;
+        const geoms = meshes.map((m) => {
+            const g = m.geometry.clone();
+            g.applyMatrix4(inv.clone().multiply(m.matrixWorld));
+            // mergeGeometries refuses to merge attributes whose `gpuType` differs,
+            // and this export carries a mix even though every array is a
+            // Float32Array. Normalising it is what actually lets the merge run.
+            for (const attr of Object.values(g.attributes)) {
+                if (attr.array instanceof Float32Array) attr.gpuType = THREE.FloatType;
+            }
+            return g;
+        });
+        const combined = mergeGeometries(geoms, false);
+        geoms.forEach((g) => g.dispose());
+        if (!combined) return;   // mismatched attributes: leave this group alone
+
+        const mesh = new THREE.Mesh(combined, material);
+        mesh.name = `merged_${material.name || 'material'}`;
+        mesh.castShadow = meshes.some((m) => m.castShadow);
+        mesh.receiveShadow = meshes.some((m) => m.receiveShadow);
+        root.add(mesh);
+        meshes.forEach((m) => { m.removeFromParent(); m.geometry.dispose(); removed++; });
+        merged++;
+    });
+
+    return { merged, removed, remaining: originals.length - removed };
 }
 
 // ---------------------------------------------------------------------------
@@ -250,6 +309,7 @@ function setupPond(gltf) {
 
     let model;
     let waterMeshList = [];
+    const skipMerge = new Set();   // meshes that keep their own material/shader
     let surfaceWaterMat = null;
     let waterTex = null;
 
@@ -300,6 +360,7 @@ function setupPond(gltf) {
                     );
                 };
                 child.material = terrainMat;
+                skipMerge.add(child);   // its shader feathers against local coords
                 child.receiveShadow = true;
             } else if (matName.includes('water') || childName.includes('water')) {
                 const newWaterMat = new THREE.MeshStandardMaterial({
@@ -308,6 +369,7 @@ function setupPond(gltf) {
                     emissiveIntensity: 0.40,
                     roughness: 0.05,
                     metalness: 0.18,
+                    envMapIntensity: 2.6,   // scene env is only 0.13; water needs reflection
                     transparent: true,
                     opacity: 0.90,
                     depthWrite: true,
@@ -357,12 +419,42 @@ function setupPond(gltf) {
     hitbox.position.set(0, 2.5, 0);
     group.add(hitbox);
 
+    // `time` is real accumulated seconds. It used to be a per-frame counter, so
+    // the ripple ran at whatever the display refresh rate happened to be -- and
+    // slowly enough (one cycle per ~48s) to be invisible either way.
+    //
+    // Opacity alone never read as water. Scrolling the ripple map is what
+    // actually moves: two of them, at detuned rates and opposed directions, so
+    // the surface drifts rather than sliding as one sheet.
+    waterMeshList.forEach((m) => {
+        const map = m.material && m.material.map;
+        if (map) {
+            map.wrapS = map.wrapT = THREE.RepeatWrapping;   // offsetting a clamped map smears its edge pixels
+            map.needsUpdate = true;
+        }
+    });
+
+    // Safe now, and only now: every mesh this function needed to find by name
+    // has already been found and re-materialled.
+    if (gltf && gltf.scene) {
+        waterMeshList.forEach((m) => skipMerge.add(m));
+        const stats = mergeStaticByMaterial(model, skipMerge);
+        console.info(`[garden] pond merged ${stats.removed} meshes into ${stats.merged} (kept ${stats.remaining} unmerged)`);
+    }
+
     const update = (time) => {
         for (let i = 0; i < waterMeshList.length; i++) {
             const m = waterMeshList[i];
-            if (m.material && m.material.opacity !== undefined) {
-                const s = 0.88 + Math.sin(time * 2.2 + i) * 0.04;
+            if (!m.material) continue;
+            if (m.material.opacity !== undefined) {
+                const s = 0.88 + Math.sin(time * 0.85 + i * 1.7) * 0.045;
                 m.material.opacity = THREE.MathUtils.clamp(s, 0.82, 0.95);
+            }
+            const map = m.material.map;
+            if (map) {
+                const dir = i % 2 ? -1 : 1;
+                map.offset.x = (time * 0.013 * dir) % 1;
+                map.offset.y = (time * 0.021) % 1;
             }
         }
     };
@@ -709,6 +801,9 @@ function createGardenPathway() {
     pathTex.wrapS = THREE.RepeatWrapping;
     pathTex.wrapT = THREE.RepeatWrapping;
     pathTex.repeat.set(1, 14);
+    // The path is almost always seen at a grazing angle -- the worst case for
+    // isotropic filtering, and the cheapest place anisotropy pays off.
+    pathTex.anisotropy = 8;
 
     const pathMat = new THREE.MeshStandardMaterial({
         map: pathTex,
