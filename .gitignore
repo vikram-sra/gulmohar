@@ -4,3 +4,8 @@ dist/
 .claude/
 *.local
 
+
+# Pristine, multi-hundred-MB Sketchfab source exports -- public/models/ holds
+# the optimized versions actually served. See README for the gltf-transform
+# pipeline that derives one from the other.
+3d_Assets/

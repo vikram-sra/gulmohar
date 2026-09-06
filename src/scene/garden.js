@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { getAssetUrl } from '../utils/paths.js';
 
 // Garden layout coordinates:
@@ -20,6 +21,10 @@ export const GARDEN_POINTS = {
  */
 export function loadGarden(loadingManager) {
     const loader = new GLTFLoader(loadingManager);
+    // Every garden asset is meshopt-compressed at rest (see README) -- without
+    // the decoder, GLTFLoader fails silently on those files and each landmark
+    // falls back to its procedural stand-in.
+    loader.setMeshoptDecoder(MeshoptDecoder);
     const gardenGroup = new THREE.Group();
     gardenGroup.name = 'Garden';
 
@@ -508,7 +513,7 @@ function setupFloorEverywhere(leavesGltf) {
 
     // 1. Scatter individual realistic leaves across the entire garden floor
     if (leafMeshes.length > 0) {
-        const countPerMesh = 125; // 8 leaf types * 125 = 1,000 scattered botanical leaves on ground
+        const countPerMesh = 45; // 8 leaf types * 45 = 360 scattered botanical leaves on ground
         const dummy = new THREE.Object3D();
 
         leafMeshes.forEach(({ geometry, material }) => {
@@ -568,7 +573,7 @@ function setupFloorEverywhere(leavesGltf) {
 
     // 2. Scatter micro plants & lush riparian foliage to blend pond edges and garden spaces
     if (microPlants.length > 0) {
-        const countPerPlant = 40;
+        const countPerPlant = 16;
         const dummy = new THREE.Object3D();
 
         microPlants.forEach(({ geometry, material }) => {
