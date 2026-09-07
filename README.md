@@ -127,6 +127,42 @@ for a single file, against GitHub's 100 MB hard limit), which is why
 Rewriting that history (`git filter-repo` + a force-push) would shrink the
 clone but rewrites shared history — worth doing, but only on request.
 
+### The ground texture
+
+`public/textures/ground_baked.jpg` is not `floor_leaves.glb`'s own
+`ground_close` texture tiled directly — that texture is a photogrammetry
+**UV atlas** (charts packed for storage, arbitrarily oriented), and tiling
+it draws the packing layout, not the ground; no repeat value fixes that,
+because the image was never a top-down photo to begin with.
+
+It's baked instead: `ground_close`'s mesh is isolated from the *pristine*
+source (`3d_Assets/floor_leaves_in_the_garden.glb` — the already-optimized
+`public/models/floor_leaves.glb` has had its textures resized and isn't
+worth re-baking from), then rendered as an orthographic top-down projection
+with real UVs. The source mesh's local units turned out to be ~2650 units
+across (not metres), so `--px-per-unit` has to be picked from the mesh's
+own extent, not assumed:
+
+```bash
+python3 -c "
+import json, struct
+d = open('3d_Assets/floor_leaves_in_the_garden.glb','rb').read()
+# ...find the ground_close mesh's POSITION accessor min/max, compute extent
+"
+# then, after isolating just that mesh into its own .glb (mesh 0 here;
+# the bake script rasterises EVERY primitive against the FIRST embedded
+# image, so leaf-litter meshes must not be present or they get projected
+# against the ground atlas too):
+python3 /path/to/threejs-experience/scripts/bake-floor-texture.py \
+  ground_only.glb public/textures/ground_baked.jpg \
+  --size 1536 --px-per-unit 0.58   # extent ~2650 -> ~1536px square
+```
+
+Tiling is broken in the ground shader (`main.js`'s `groundMat.onBeforeCompile`)
+with two overlapping sine fields at sub-tile, incommensurate frequencies,
+multiplying brightness by a continuously varying ±6% — deliberately not a
+`floor()`-based hash, which would draw its own hard-edged cell boundaries.
+
 ## Changing things
 
 - **A landmark's model** — replace the file in `public/models/`; re-run the

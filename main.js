@@ -10,6 +10,7 @@ import { createTorontoSkySystem } from './src/sky/celestial.js';
 import { loadGarden, GARDEN_POINTS } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
 import { SITE } from './src/content.js';
+import { getAssetUrl } from './src/utils/paths.js';
 
 // ---------------------------------------------------------------------------
 // Module-scope scratch objects and palettes.
@@ -410,6 +411,16 @@ class GulmoharApp {
             shader.fragmentShader = 'varying vec3 vGroundWorldPos;\nuniform vec2 uPondCentre;\n' + shader.fragmentShader.replace(
                 '#include <dithering_fragment>',
                 `#include <dithering_fragment>
+                 // A tiled photograph repeats exactly every tile, which the eye
+                 // catches even when the tile itself is convincing. Two overlapping
+                 // sine fields at incommensurate, sub-tile frequencies multiply
+                 // brightness by a CONTINUOUSLY varying +-6% -- deliberately not a
+                 // floor()-based hash, which would draw its own hard-edged cell
+                 // boundaries (exactly the blockiness fixed elsewhere this session).
+                 float detile = sin(vGroundWorldPos.x * 0.11 + 1.3) * sin(vGroundWorldPos.z * 0.09 - 0.7)
+                              + sin(vGroundWorldPos.x * 0.037 - 2.1) * sin(vGroundWorldPos.z * 0.043 + 0.4) * 0.6;
+                 gl_FragColor.rgb *= 1.0 + detile * 0.06;
+
                  float r = length(vGroundWorldPos.xz);
                  // Two-stage horizon: mix toward the fog first, then fade alpha so
                  // the real sky shows through. A colour mix alone cannot match a
@@ -432,30 +443,29 @@ class GulmoharApp {
         this.skySystem = createTorontoSkySystem(1800, this.isMobile);
         this.scene.add(this.skySystem.skyRoot);
 
+        // A baked top-down photograph of the ground, not the photogrammetry
+        // scan's own texture tiled directly. That texture is a UV atlas --
+        // charts packed for storage, not a picture of the ground from above
+        // -- and tiling it drew the packing layout: coherent patches of
+        // recognisable dirt separated by bands of visibly smeared, wrongly
+        // oriented texture. This was rendered once, offline, by projecting
+        // the scan's ground_close mesh orthographically onto its own plane
+        // and rasterising every triangle with its real UVs (see the skill's
+        // bake-floor-texture.py and the README for the exact command).
+        new THREE.TextureLoader(this.loadingManager).load(getAssetUrl('textures/ground_baked.jpg'), (tex) => {
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            tex.repeat.set(10, 10);
+            tex.anisotropy = this._maxAnisotropy();
+            this.groundMat.map = tex;
+            this.groundMat.color.setHex(0xffffff);
+            this.groundMat.needsUpdate = true;
+        });
+
         loadGarden(this.loadingManager).then((garden) => {
             this.garden = garden;
             this.scene.add(garden.group);
-
-            if (garden.groundTexture) {
-                const gt = garden.groundTexture.clone();
-                gt.wrapS = THREE.RepeatWrapping;
-                gt.wrapT = THREE.RepeatWrapping;
-                gt.repeat.set(10, 10);
-                gt.anisotropy = this._maxAnisotropy();
-                gt.needsUpdate = true;
-                this.groundMat.map = gt;
-                this.groundMat.color.setHex(0xffffff);
-            }
-            if (garden.groundNormal) {
-                const gn = garden.groundNormal.clone();
-                gn.wrapS = THREE.RepeatWrapping;
-                gn.wrapT = THREE.RepeatWrapping;
-                gn.repeat.set(10, 10);
-                gn.anisotropy = this._maxAnisotropy();
-                gn.needsUpdate = true;
-                this.groundMat.normalMap = gn;
-            }
-            this.groundMat.needsUpdate = true;
 
             const aniso = this.isMobile ? 4 : this._maxAnisotropy();
             const seenTex = new Set();
