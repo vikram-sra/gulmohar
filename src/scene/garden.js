@@ -106,6 +106,9 @@ export function loadGarden(loadingManager) {
         const pathway = createGardenPathway();
         gardenGroup.add(pathway);
 
+        // 7. Flower beds along the path's outer shoulder
+        gardenGroup.add(createFlowerBeds());
+
         const windEnv = createWindEnvelope();
 
         return {
@@ -150,6 +153,54 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
             side: THREE.FrontSide
         });
     }
+}
+
+// Shared across every landmark that gets a contact-shadow decal, so the
+// canvas is only ever drawn once.
+let _contactShadowTexture = null;
+function contactShadowTexture() {
+    if (_contactShadowTexture) return _contactShadowTexture;
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+    g.addColorStop(0.0, 'rgba(0,0,0,0.85)');
+    g.addColorStop(0.35, 'rgba(0,0,0,0.62)');
+    g.addColorStop(0.70, 'rgba(0,0,0,0.22)');
+    g.addColorStop(1.0, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, size, size);
+    _contactShadowTexture = new THREE.CanvasTexture(canvas);
+    return _contactShadowTexture;
+}
+
+/**
+ * A radial-gradient decal under a landmark, for the darkening a real shadow
+ * map rarely resolves right at the contact point. Only worth it for objects
+ * wide relative to their height -- a disc wider than the object is tall
+ * reads as a circle painted on the ground rather than shade (see
+ * references/world.md) -- which is why the pond doesn't get one: its basin
+ * already reads as sunken.
+ *
+ * @param {number} diameter  world units; sized per-landmark by the caller
+ */
+function createContactShadow(diameter) {
+    const decal = new THREE.Mesh(
+        new THREE.PlaneGeometry(diameter, diameter),
+        new THREE.MeshBasicMaterial({
+            map: contactShadowTexture(),
+            transparent: true,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -4,
+            polygonOffsetUnits: -4
+        })
+    );
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.y = 0.03;   // above the grass root line, below the pathway ribbon
+    decal.renderOrder = 2;
+    return decal;
 }
 
 /**
@@ -248,6 +299,7 @@ function setupGulmohar(gltf) {
     group.position.copy(GARDEN_POINTS.GULMOHAR);
     group.rotation.y = 0.45;
     group.add(model);
+    group.add(createContactShadow(7.5));
 
     // Hitbox for hover/click (in local coordinates relative to group)
     const hitbox = new THREE.Mesh(
@@ -308,6 +360,7 @@ function setupGazebo(gltf) {
     // Face entrance steps directly toward the center Gulmohar tree
     group.rotation.y = 0.50;
     group.add(model);
+    group.add(createContactShadow(6.5));
 
     // Hitbox for hover/click (local coordinates relative to group)
     const hitbox = new THREE.Mesh(
@@ -528,9 +581,11 @@ function setupMaple(gltf) {
         const size = box.getSize(new THREE.Vector3());
         const scaleFactor = targetHeight / Math.max(size.y, 0.001);
 
-        // Sunk 1.2m into the ground so trunk base and root flare are solidly buried
+        // Sunk enough to bury the root flare, not the whole contact seam -- a
+        // contact-shadow decal now covers the rest (createContactShadow, below),
+        // so this no longer has to do all the work on its own.
         model.scale.setScalar(scaleFactor);
-        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 1.25, -center.z * scaleFactor);
+        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 0.55, -center.z * scaleFactor);
 
         model.traverse((child) => {
             if (!child.isMesh || !child.material) return;
@@ -556,6 +611,7 @@ function setupMaple(gltf) {
     group.position.copy(GARDEN_POINTS.MAPLE);
     group.rotation.y = 1.2;
     group.add(model);
+    group.add(createContactShadow(7.5));
 
     // Hitbox for hover/click (local coordinates relative to group)
     const hitbox = new THREE.Mesh(
@@ -710,7 +766,11 @@ function setupFloorEverywhere(leavesGltf) {
 
     // 2. Scatter micro plants & lush riparian foliage to blend pond edges and garden spaces
     if (microPlants.length > 0) {
-        const countPerPlant = 16;
+        // Was 16 with an `i < 24` / `i < 32` branch split -- at 16 total instances
+        // the first branch is always true, so every plant landed in the pond ring
+        // and the maple/centerpiece branches were dead code. Rolling a fraction
+        // instead of comparing the loop index is what actually reaches all three.
+        const countPerPlant = 60;
         const dummy = new THREE.Object3D();
 
         microPlants.forEach(({ geometry, material }) => {
@@ -720,13 +780,14 @@ function setupFloorEverywhere(leavesGltf) {
 
             for (let i = 0; i < countPerPlant; i++) {
                 let x, z;
-                if (i < 24) {
+                const roll = Math.random();
+                if (roll < 0.40) {
                     // Ring around sunken pond bank to merge rocks and garden lawn
                     const r = 7.0 + Math.random() * 2.5;
                     const theta = Math.random() * Math.PI * 2;
                     x = GARDEN_POINTS.POND.x + Math.cos(theta) * r;
                     z = GARDEN_POINTS.POND.z + Math.sin(theta) * r;
-                } else if (i < 32) {
+                } else if (roll < 0.70) {
                     // Near Japanese maple
                     const r = 3.0 + Math.random() * 5.0;
                     const theta = Math.random() * Math.PI * 2;
@@ -754,6 +815,119 @@ function setupFloorEverywhere(leavesGltf) {
     }
 
     return { group: root, groundTexture, groundNormal };
+}
+
+// ---------------------------------------------------------------------------
+// 6b. Flower beds along the path's outer shoulder
+// ---------------------------------------------------------------------------
+// Two InstancedMeshes -- foliage and blossoms -- both sampled from the SAME
+// curve formula as createGardenPathway (PATH_BASE_R / PATH_WAVE_AMP), so a
+// bed can never drift out of alignment with the path it borders. Placement
+// hugs the outer edge and is widest at the clover's four outward lobes
+// (where sin(theta*4) peaks), which is what reads as planted rather than a
+// uniform painted verge.
+const BED_FOLIAGE_COLORS = [
+    new THREE.Color(0x4a5c34), new THREE.Color(0x5c7040),
+    new THREE.Color(0x3c4c2a), new THREE.Color(0x6b7d4a)
+];
+const BED_BLOSSOM_COLORS = [
+    new THREE.Color(0xd9502f), new THREE.Color(0xb03d22),   // gulmohar red
+    new THREE.Color(0xc98a2e), new THREE.Color(0xe3b65c)    // maple gold
+];
+
+function pathRadiusAt(theta) {
+    return PATH_BASE_R + Math.sin(theta * 4) * PATH_WAVE_AMP;
+}
+
+/**
+ * Wires a per-instance colour into an InstancedMesh's material through a
+ * hand-rolled attribute, rather than `InstancedMesh.setColorAt()`.
+ *
+ * setColorAt is supposed to be sufficient on its own -- Three sets the
+ * USE_INSTANCING_COLOR shader define from `object.instanceColor !== null` --
+ * but measured on this build (see src/scene/grass.js for the full
+ * diagnosis), that define never reached the compiled shader even with a
+ * real, populated instanceColor attribute, so every instance rendered at
+ * vColor's uninitialised default: black. Reusing the same manual wiring
+ * here rather than rediscovering the bug a second time.
+ */
+function wireInstancedColor(mesh, colorArray) {
+    mesh.geometry.setAttribute('aInstColor', new THREE.InstancedBufferAttribute(colorArray, 3));
+    mesh.material.onBeforeCompile = (shader) => {
+        shader.vertexShader = 'attribute vec3 aInstColor;\nvarying vec3 vInstColor;\n' + shader.vertexShader;
+        shader.vertexShader = shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            '#include <begin_vertex>\nvInstColor = aInstColor;'
+        );
+        shader.fragmentShader = 'varying vec3 vInstColor;\n' + shader.fragmentShader;
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <color_fragment>',
+            '#include <color_fragment>\ndiffuseColor.rgb *= vInstColor;'
+        );
+    };
+    mesh.material.needsUpdate = true;
+}
+
+function createFlowerBeds() {
+    const group = new THREE.Group();
+    group.name = 'FlowerBeds';
+
+    const foliageGeo = new THREE.IcosahedronGeometry(0.16, 0);   // 20 tris, cheap by design
+    const blossomGeo = new THREE.IcosahedronGeometry(0.075, 0);
+
+    const foliageMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0 });
+    const blossomMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
+
+    const FOLIAGE_COUNT = 1400;
+    const BLOSSOM_COUNT = 800;
+    const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, FOLIAGE_COUNT);
+    const blossoms = new THREE.InstancedMesh(blossomGeo, blossomMat, BLOSSOM_COUNT);
+    [foliage, blossoms].forEach((m) => { m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false; });
+    wireInstancedColor(foliage, new Float32Array(FOLIAGE_COUNT * 3));
+    wireInstancedColor(blossoms, new Float32Array(BLOSSOM_COUNT * 3));
+
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+
+    const place = (mesh, count, colors, depthRange, radiusJitter) => {
+        const colorArray = mesh.geometry.attributes.aInstColor.array;
+        for (let i = 0; i < count; i++) {
+            const theta = Math.random() * Math.PI * 2;
+            // Widest at the clover's outward points: bias depth by how far
+            // sin(theta*4) has swung positive, so the lobes read as fuller beds.
+            const lobe = Math.max(0, Math.sin(theta * 4));
+            const pathR = pathRadiusAt(theta);
+            const edge = pathR + PATH_WIDTH * 0.5 + 0.25;
+            const depth = depthRange[0] + Math.random() * (depthRange[1] + lobe * 0.9 - depthRange[0]);
+            const r = edge + depth + (Math.random() - 0.5) * radiusJitter;
+            const x = Math.cos(theta) * r, z = Math.sin(theta) * r;
+
+            // Not in the bed if it isn't clear (or reuse a safe fallback spot
+            // rather than leaving a zero-matrix instance, which draws a
+            // degenerate triangle at the origin).
+            const clear = isGroundClear(x, z, 0.1);
+            const px = clear ? x : 0, pz = clear ? z : 0;
+            const s = clear ? (0.7 + Math.random() * 0.7) : 0;
+
+            dummy.position.set(px, 0.05 + Math.random() * 0.05, pz);
+            dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
+            dummy.scale.set(s, s, s);
+            dummy.updateMatrix();
+            mesh.setMatrixAt(i, dummy.matrix);
+
+            color.copy(colors[Math.floor(Math.random() * colors.length)])
+                .offsetHSL((Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.06);
+            colorArray[i * 3] = color.r; colorArray[i * 3 + 1] = color.g; colorArray[i * 3 + 2] = color.b;
+        }
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.geometry.attributes.aInstColor.needsUpdate = true;
+    };
+
+    place(foliage, FOLIAGE_COUNT, BED_FOLIAGE_COLORS, [0.1, 0.9], 0.5);
+    place(blossoms, BLOSSOM_COUNT, BED_BLOSSOM_COLORS, [0.15, 0.75], 0.6);
+
+    group.add(foliage, blossoms);
+    return group;
 }
 
 // ---------------------------------------------------------------------------

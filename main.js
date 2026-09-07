@@ -37,23 +37,23 @@ function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     return out;
 }
 
-const C_DAY_ZENITH = new THREE.Color(0x86adc9);        // porcelain blue
-const C_DAY_HORIZON = new THREE.Color(0xcbdcdd);       // pale haze at the rim
-const C_DAY_HORIZON_OPP = new THREE.Color(0xbcd1d6);
-const C_DAWN_ZENITH = new THREE.Color(0xa9a7c4);       // soft lilac
-const C_DAWN_HORIZON = new THREE.Color(0xf2c6ae);      // lifted gulmohar-bright
-const C_DAWN_HORIZON_OPP = new THREE.Color(0xc3c0d2);
-const C_DUSK_ZENITH = new THREE.Color(0x9a93b2);       // dusty lavender
-const C_DUSK_HORIZON = new THREE.Color(0xe8a184);      // apricot, not sodium orange
-const C_DUSK_HORIZON_OPP = new THREE.Color(0xb3adc4);
+const C_DAY_ZENITH = new THREE.Color(0xdfe9ea);        // near-white, barest sky tint -- afternoon reads white
+const C_DAY_HORIZON = new THREE.Color(0xf6f4ec);       // white with a whisper of warmth at the rim
+const C_DAY_HORIZON_OPP = new THREE.Color(0xeceae2);
+const C_DAWN_ZENITH = new THREE.Color(0xb9c6d6);       // sky still cool overhead
+const C_DAWN_HORIZON = new THREE.Color(0xffcf6b);      // golden yellow
+const C_DAWN_HORIZON_OPP = new THREE.Color(0xc7cdd6);
+const C_DUSK_ZENITH = new THREE.Color(0xaa9fb0);       // cooling toward night overhead
+const C_DUSK_HORIZON = new THREE.Color(0xf5b942);      // deeper gold than dawn -- late-day warmth
+const C_DUSK_HORIZON_OPP = new THREE.Color(0xb2a8bd);
 const C_NIGHT_ZENITH = new THREE.Color(0x2f384d);      // deep indigo, never black
 const C_NIGHT_HORIZON = new THREE.Color(0x424d5f);
 
-const C_SUN_HIGH = new THREE.Color(0xfffde8);
-const C_SUN_LOW = new THREE.Color(0xffb27a);
-const C_SUNLIGHT_HIGH = new THREE.Color(0xfff2c8);
-const C_SUNLIGHT_LOW = new THREE.Color(0xf0a070);
-const C_SUNLIGHT_DAWN = new THREE.Color(0xf3bca6);
+const C_SUN_HIGH = new THREE.Color(0xfffef8);          // near-white at height
+const C_SUN_LOW = new THREE.Color(0xffc966);           // golden yellow low in the sky
+const C_SUNLIGHT_HIGH = new THREE.Color(0xfffaf0);     // white afternoon light
+const C_SUNLIGHT_LOW = new THREE.Color(0xffc35c);      // dusk: rich golden yellow
+const C_SUNLIGHT_DAWN = new THREE.Color(0xffd98f);     // dawn: lighter golden yellow
 const C_MOON_HIGH = new THREE.Color(0xe6edf5);
 const C_MOON_LOW = new THREE.Color(0xc2d2e2);
 const C_MOON_EMISSIVE = new THREE.Color(0xe0e8f2);
@@ -61,8 +61,8 @@ const C_MOONLIGHT_HIGH = new THREE.Color(0xd8e4f2);
 const C_MOONLIGHT_LOW = new THREE.Color(0xc6d6e8);
 
 const C_HEMI_NIGHT = new THREE.Color(0x54648a);
-const C_HEMI_DAWN = new THREE.Color(0xf0c3b2);
-const C_HEMI_DAY = new THREE.Color(0xfdf6e4);
+const C_HEMI_DAWN = new THREE.Color(0xf5cf8f);
+const C_HEMI_DAY = new THREE.Color(0xfefcf5);
 const C_HEMI_GROUND_NIGHT = new THREE.Color(0x2c3444);
 const C_HEMI_GROUND_DAWN = new THREE.Color(0x5b4a44);
 const C_HEMI_GROUND_DAY = new THREE.Color(0x6e6a52);
@@ -248,7 +248,13 @@ class GulmoharApp {
         this.hemiLight = new THREE.HemisphereLight(0xfff3d8, 0x221c16, 0.28);
         this.scene.add(this.hemiLight);
 
-        const shadowRes = this.isMobile ? 1024 : 2048;
+        // 2048 over this frustum was ~3.3cm/texel -- coarser than the leaf
+        // and branch detail casting into it, which read as a blocky,
+        // checkered ground shadow rather than an organic dapple. The shadow
+        // map now only re-renders at a fixed ~12Hz (see animate()) rather
+        // than every frame, which is what makes spending more of the budget
+        // on resolution here affordable: 4096 brings it to ~1.66cm/texel.
+        const shadowRes = this.isMobile ? 1024 : 4096;
         // Compact shadow frustum tightly framing the garden for high performance and crisp shadows
         const d = 34;
 
