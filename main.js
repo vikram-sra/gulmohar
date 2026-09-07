@@ -8,6 +8,7 @@ import gsap from 'gsap';
 
 import { createTorontoSkySystem } from './src/sky/celestial.js';
 import { loadGarden, GARDEN_POINTS } from './src/scene/garden.js';
+import { createGrassField } from './src/scene/grass.js';
 import { SITE } from './src/content.js';
 
 // ---------------------------------------------------------------------------
@@ -471,6 +472,15 @@ class GulmoharApp {
                 this._registerHover(object, data);
             });
 
+            // One InstancedMesh, one draw call, castShadow false -- 8,000
+            // clumps in the shadow pass would more than double its cost for
+            // shadows nobody could resolve at 15cm anyway. Thinned on mobile
+            // rather than removed, so the world doesn't visibly change shape
+            // by device -- just how dense the lawn reads.
+            const grassCount = Math.round((this.isMobile ? 0.4 : 1.0) * 7000);
+            this.grass = createGrassField(39, grassCount);
+            this.scene.add(this.grass);
+
             this._contentReady = true;
             this.renderer.shadowMap.needsUpdate = true;
             this._maybeStartIntro();
@@ -883,14 +893,22 @@ class GulmoharApp {
         this.moonLight.intensity = moonFactor * fullMoonIntensity;
         this.moonLight.castShadow = moonFactor > 0.06 && moonFactor > sunFactor;
 
-        // Re-render the shadow maps only when the result would actually differ:
-        // the sun has swung far enough to move a shadow edge, or a light has
-        // just started/stopped casting (which leaves it with no map at all, so
-        // waiting for the angle gate would render a frame with no shadows).
+        // Re-render the shadow maps on a fixed cadence, not purely on sun-angle
+        // delta. A pure angle gate looked right in isolation and was wrong in
+        // practice: at the ambient day speed (a ~4.5 min cycle) the 0.008 rad
+        // threshold only fires about 3 times a second, which reads as visibly
+        // jittery, stepped shadow motion rather than a smooth sweep -- worse
+        // once foliage wind was added, since the canopy now moves every frame
+        // while its shadow sat frozen for ~330ms at a time between updates.
+        // ~12 Hz is still an ~80% reduction in shadow-pass cost from rendering
+        // every frame, and frequent enough that PCFSoft's own blur hides the
+        // gap between updates. A light that has just started/stopped casting
+        // still forces an immediate refresh -- otherwise it would render with
+        // no map at all until the next scheduled tick.
         const castingKey = (this.sunLight.castShadow ? 1 : 0) | (this.moonLight.castShadow ? 2 : 0);
-        if (Math.abs(this.sunAngle - (this._lastShadowAngle ?? -99)) > 0.008 ||
-            castingKey !== this._lastCastingKey) {
-            this._lastShadowAngle = this.sunAngle;
+        const shadowDue = (nowMs - (this._lastShadowMs ?? 0)) > 82;
+        if (shadowDue || castingKey !== this._lastCastingKey) {
+            this._lastShadowMs = nowMs;
             this._lastCastingKey = castingKey;
             this.renderer.shadowMap.needsUpdate = true;
         }

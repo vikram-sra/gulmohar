@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getAssetUrl } from '../utils/paths.js';
+import { isFoliageForWind, injectFoliageWind, createWindEnvelope, updateWindEnvelope } from './wind.js';
 
 // Garden layout coordinates:
 // - Center: Gulmohar Tree (0, 0, 0)
@@ -15,6 +16,31 @@ export const GARDEN_POINTS = {
     GAZEBO: new THREE.Vector3(22.0, 0, 18.0),
     MAPLE: new THREE.Vector3(23.0, 0, -21.0)
 };
+
+// The path loop's own shape (createGardenPathway, below) -- pulled to module
+// scope so grass and flower beds can ask "is this point clear of the path"
+// without re-typing the curve's formula, the way the ground shader used to
+// re-type the pond's coordinates.
+const PATH_BASE_R = 15.5;
+const PATH_WAVE_AMP = 2.8;
+const PATH_WIDTH = 2.4;
+const POND_CLEAR_R = 6.8;
+const GAZEBO_CLEAR_R = 4.6;
+
+/**
+ * Ground validity for anything scattered across the lawn -- grass, flower
+ * beds -- so pond, path and gazebo footprint are each defined exactly once.
+ * `margin` widens every exclusion by the same amount, for things (like a
+ * flower bed) that should keep a little more distance than grass does.
+ */
+export function isGroundClear(x, z, margin = 0) {
+    if (Math.hypot(x - GARDEN_POINTS.POND.x, z - GARDEN_POINTS.POND.z) < POND_CLEAR_R + margin) return false;
+    if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
+    const theta = Math.atan2(z, x);
+    const pathR = PATH_BASE_R + Math.sin(theta * 4) * PATH_WAVE_AMP;
+    if (Math.abs(Math.hypot(x, z) - pathR) < PATH_WIDTH * 0.5 + 0.3 + margin) return false;
+    return true;
+}
 
 /**
  * Loads all 3D assets for the garden and constructs the pathways, central bed,
@@ -80,12 +106,15 @@ export function loadGarden(loadingManager) {
         const pathway = createGardenPathway();
         gardenGroup.add(pathway);
 
+        const windEnv = createWindEnvelope();
+
         return {
             group: gardenGroup,
             interactives,
             groundTexture: floorResult.groundTexture,
             groundNormal: floorResult.groundNormal,
             update: (time, delta) => {
+                updateWindEnvelope(windEnv, delta, time);
                 for (let i = 0; i < updateables.length; i++) {
                     updateables[i](time, delta);
                 }
@@ -205,7 +234,12 @@ function setupGulmohar(gltf) {
             if (!child.isMesh || !child.material) return;
             child.castShadow = true;
             child.receiveShadow = true;
+            // Captured before enhanceFoliageMaterial runs: it rewrites every
+            // BLEND material to alphaTest, which would make `transparent`
+            // false on all foliage and blind the wind gate's alpha-blend test.
+            const wantsWind = isFoliageForWind(child, child.material);
             enhanceFoliageMaterial(child.material, child, 0.32);
+            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.022, speedMult: 0.85 });   // was 0.05/1.0 -- too much sway on the stalk mesh, 48% of the tree's geometry
         });
     } else {
         model = createFallbackTree(0xcc3720, 11.2);
@@ -502,7 +536,18 @@ function setupMaple(gltf) {
             if (!child.isMesh || !child.material) return;
             child.castShadow = true;
             child.receiveShadow = true;
+            // The maple's canopy material is literally named `Material_Mat` --
+            // no leafy word anywhere in this export -- so it is caught only by
+            // the alpha-blend branch of the gate, which is exactly why this
+            // has to run before enhanceFoliageMaterial converts BLEND away.
+            const wantsWind = isFoliageForWind(child, child.material);
             enhanceFoliageMaterial(child.material, child, 0.35);
+            // Lower amplitude and speed than the gulmohar: this canopy is one
+            // large merged mesh rather than separate per-leaf-type meshes, so
+            // its own bounding box already spans nearly the whole tree --
+            // the same swayFraction here would read as the canopy shredding
+            // rather than swaying.
+            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.016, speedMult: 0.7 });   // was 0.032/0.85 -- same over-sway complaint
         });
     } else {
         model = createFallbackTree(0xd85b24, 13.8);
