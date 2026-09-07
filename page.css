@@ -1,13 +1,13 @@
-/* Shared by /work/ and /about/. Colours are pulled from the 3D scene -- the
-   night sky it opens on and the champagne gold of the dock accents -- so the
-   flat pages read as the same site rather than a separate document. */
+/* Shared by /work/ and /about/. Colours are pulled from the 3D scene's own
+   pastel palette -- paper sky, ink foliage, the gulmohar's red -- so the flat
+   pages read as the same site rather than a separate document. */
 :root {
-  --ground: #0B1017;
-  --raised: #121924;
-  --ink:    #ECE7DE;
-  --muted:  #8E9AA8;
-  --gold:   #CAA565;
-  --rule:   #1E2836;
+  --ground: #F6F1E3;
+  --raised: #EEE6D2;
+  --ink:    #253226;
+  --muted:  #5C6C58;
+  --gold:   #B03D22;
+  --rule:   #93A088;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }

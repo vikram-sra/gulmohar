@@ -143,8 +143,8 @@ export function createTorontoSkySystem(radius = 1800, isMobile = false) {
                 vec3 col = baseSky + uSunColor * (corona + scatter);
 
                 // Deep royal midnight sky with subtle atmospheric horizon airglow
-                vec3 nightZenith = vec3(0.008, 0.015, 0.035);
-                vec3 nightHorizon = vec3(0.018, 0.036, 0.062);
+                vec3 nightZenith = vec3(0.0284, 0.0395, 0.0742);   // sRGB #2F384D, linearised
+                vec3 nightHorizon = vec3(0.0545, 0.0742, 0.1144);  // sRGB #424D5F, linearised
                 vec3 nightSky = mix(nightZenith, nightHorizon, horizonBand);
                 col = mix(col, nightSky, uNightFactor);
 
@@ -231,8 +231,8 @@ export function createTorontoSkySystem(radius = 1800, isMobile = false) {
                 vec3 coloredGlow = mix(armColor, coreColor, clamp(coreZone * 1.4, 0.0, 1.0));
                 coloredGlow = mix(coloredGlow, hAlphaColor, hAlphaZone * 0.32);
 
-                vec3 finalCol = tex.rgb * coloredGlow * 1.50;
-                float alpha = smoothstep(0.018, 0.65, lum) * uNightFactor * altFade * 0.95;
+                vec3 finalCol = tex.rgb * coloredGlow * 2.10;
+                float alpha = smoothstep(0.012, 0.65, lum) * uNightFactor * altFade * 0.95;
 
                 if (alpha <= 0.001) discard;
                 gl_FragColor = vec4(finalCol * alpha, alpha);

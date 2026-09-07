@@ -36,40 +36,40 @@ function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     return out;
 }
 
-const C_DAY_ZENITH = new THREE.Color(0x1a4674);
-const C_DAY_HORIZON = new THREE.Color(0x4c78a6);
-const C_DAY_HORIZON_OPP = new THREE.Color(0x5580ab);
-const C_DAWN_ZENITH = new THREE.Color(0x2a2547);
-const C_DAWN_HORIZON = new THREE.Color(0xe0967f);
-const C_DAWN_HORIZON_OPP = new THREE.Color(0x4a4a72);
-const C_DUSK_ZENITH = new THREE.Color(0x1c182c);
-const C_DUSK_HORIZON = new THREE.Color(0xc8501f);
-const C_DUSK_HORIZON_OPP = new THREE.Color(0x3d3a60);
-const C_NIGHT_ZENITH = new THREE.Color(0x02040a);
-const C_NIGHT_HORIZON = new THREE.Color(0x060c18);
+const C_DAY_ZENITH = new THREE.Color(0x86adc9);        // porcelain blue
+const C_DAY_HORIZON = new THREE.Color(0xcbdcdd);       // pale haze at the rim
+const C_DAY_HORIZON_OPP = new THREE.Color(0xbcd1d6);
+const C_DAWN_ZENITH = new THREE.Color(0xa9a7c4);       // soft lilac
+const C_DAWN_HORIZON = new THREE.Color(0xf2c6ae);      // lifted gulmohar-bright
+const C_DAWN_HORIZON_OPP = new THREE.Color(0xc3c0d2);
+const C_DUSK_ZENITH = new THREE.Color(0x9a93b2);       // dusty lavender
+const C_DUSK_HORIZON = new THREE.Color(0xe8a184);      // apricot, not sodium orange
+const C_DUSK_HORIZON_OPP = new THREE.Color(0xb3adc4);
+const C_NIGHT_ZENITH = new THREE.Color(0x2f384d);      // deep indigo, never black
+const C_NIGHT_HORIZON = new THREE.Color(0x424d5f);
 
 const C_SUN_HIGH = new THREE.Color(0xfffde8);
-const C_SUN_LOW = new THREE.Color(0xff8a34);
+const C_SUN_LOW = new THREE.Color(0xffb27a);
 const C_SUNLIGHT_HIGH = new THREE.Color(0xfff2c8);
-const C_SUNLIGHT_LOW = new THREE.Color(0xe8722a);
-const C_SUNLIGHT_DAWN = new THREE.Color(0xea9a80);
+const C_SUNLIGHT_LOW = new THREE.Color(0xf0a070);
+const C_SUNLIGHT_DAWN = new THREE.Color(0xf3bca6);
 const C_MOON_HIGH = new THREE.Color(0xe6edf5);
 const C_MOON_LOW = new THREE.Color(0xc2d2e2);
 const C_MOON_EMISSIVE = new THREE.Color(0xe0e8f2);
-const C_MOONLIGHT_HIGH = new THREE.Color(0xc8d8e8);
-const C_MOONLIGHT_LOW = new THREE.Color(0xb0c5da);
+const C_MOONLIGHT_HIGH = new THREE.Color(0xd8e4f2);
+const C_MOONLIGHT_LOW = new THREE.Color(0xc6d6e8);
 
-const C_HEMI_NIGHT = new THREE.Color(0x1a2638);
-const C_HEMI_DAWN = new THREE.Color(0xdfa090);
-const C_HEMI_DAY = new THREE.Color(0xfcf2d4);
-const C_HEMI_GROUND_NIGHT = new THREE.Color(0x080c14);
-const C_HEMI_GROUND_DAWN = new THREE.Color(0x281a18);
-const C_HEMI_GROUND_DAY = new THREE.Color(0x241f18);
+const C_HEMI_NIGHT = new THREE.Color(0x54648a);
+const C_HEMI_DAWN = new THREE.Color(0xf0c3b2);
+const C_HEMI_DAY = new THREE.Color(0xfdf6e4);
+const C_HEMI_GROUND_NIGHT = new THREE.Color(0x2c3444);
+const C_HEMI_GROUND_DAWN = new THREE.Color(0x5b4a44);
+const C_HEMI_GROUND_DAY = new THREE.Color(0x6e6a52);
 
-const C_FLOOR_NOON = new THREE.Color(0xffffff);
-const C_FLOOR_TWILIGHT = new THREE.Color(0xa4adb8);
-const C_FLOOR_MIDNIGHT = new THREE.Color(0x788494);
-const C_FLOOR_DAWN = new THREE.Color(0xe8d5c2);
+const C_FLOOR_NOON = new THREE.Color(0xfaf6ec);
+const C_FLOOR_TWILIGHT = new THREE.Color(0xcbc6d2);
+const C_FLOOR_MIDNIGHT = new THREE.Color(0xa3afc2);   // the biggest 'not black at night' lever
+const C_FLOOR_DAWN = new THREE.Color(0xf3decb);
 
 const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
@@ -194,7 +194,7 @@ class GulmoharApp {
         this.controls.autoRotate = false;               // released when the intro descent begins
         this.controls.autoRotateSpeed = -0.6;
 
-        this.scene.fog = new THREE.FogExp2(0x4c78a6, 0.002);
+        this.scene.fog = new THREE.FogExp2(0xcbdcdd, 0.005);   // was 0.002 (none); 0.011 washed it out
 
         this.setupLighting();
         this.setupEnvironment();
@@ -242,7 +242,8 @@ class GulmoharApp {
         // Ambient lifts lit and shadowed surfaces equally, which is exactly what
         // removes contrast -- keep it barely present and let the hemisphere light,
         // which at least distinguishes sky from ground, do the filling.
-        this.scene.add(new THREE.AmbientLight(0xfff5ea, 0.015));
+        this.ambientLight = new THREE.AmbientLight(0xfff5ea, 0.02);
+        this.scene.add(this.ambientLight);
         this.hemiLight = new THREE.HemisphereLight(0xfff3d8, 0x221c16, 0.28);
         this.scene.add(this.hemiLight);
 
@@ -407,7 +408,7 @@ class GulmoharApp {
                  // the real sky shows through. A colour mix alone cannot match a
                  // horizon that is warm toward the sun and cool away from it.
                  #ifdef USE_FOG
-                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(26.0, 40.0, r));
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(31.0, 41.5, r));
                  #endif
                  gl_FragColor.a *= 1.0 - smoothstep(34.0, 42.0, r);
                  // Seamless cutout for the sunken pond basin.
@@ -878,7 +879,7 @@ class GulmoharApp {
         this.sunLight.intensity = sunFactor * fullSunIntensity;
         this.sunLight.castShadow = sunFactor > 0.06 && sunFactor >= moonFactor;
 
-        const fullMoonIntensity = Math.max(1.8, sky.mH * 2.5);
+        const fullMoonIntensity = Math.max(2.4, sky.mH * 3.0);
         this.moonLight.intensity = moonFactor * fullMoonIntensity;
         this.moonLight.castShadow = moonFactor > 0.06 && moonFactor > sunFactor;
 
@@ -937,13 +938,26 @@ class GulmoharApp {
         blend3Colors(_hemiSkyScratch, C_HEMI_DAY, dayWeight, C_HEMI_DAWN, twiWeight, C_HEMI_NIGHT, nightWeight);
         blend3Colors(_hemiGndScratch, C_HEMI_GROUND_DAY, dayWeight, C_HEMI_GROUND_DAWN, twiWeight, C_HEMI_GROUND_NIGHT, nightWeight);
 
+        // Night needs a floor it never had; day keeps its contrast.
+        this.ambientLight.intensity = 0.02 + 0.06 * nightWeight;
         this.hemiLight.color.copy(_hemiSkyScratch);
         this.hemiLight.groundColor.copy(_hemiGndScratch);
-        this.hemiLight.intensity = 0.14 * nightWeight + 0.28 * twiWeight + 0.44 * dayWeight;
+        this.hemiLight.intensity = 0.30 * nightWeight + 0.36 * twiWeight + 0.40 * dayWeight;
 
         // Ground floor tint seamlessly matching celestial lighting
         const twiFloorColor = isMorning ? C_FLOOR_DAWN : C_FLOOR_TWILIGHT;
         blend3Colors(this.groundMat.color, C_FLOOR_NOON, dayWeight, twiFloorColor, twiWeight, C_FLOOR_MIDNIGHT, nightWeight);
+
+        // The HUD carries two glass treatments (index.html's [data-tod] tokens)
+        // because no single one is legible over both a pale noon sky and an
+        // indigo night. Written only on an actual crossing, with hysteresis so
+        // it does not flicker back and forth right at the boundary -- and CSS
+        // transitions turn the swap into a 0.9s fade rather than a cut.
+        const wantNight = this._hudNight ? nightWeight > 0.35 : nightWeight > 0.55;
+        if (wantNight !== this._hudNight) {
+            this._hudNight = wantNight;
+            document.body.dataset.tod = wantNight ? 'night' : 'day';
+        }
 
         if (!this.motionPaused) {
             if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt);

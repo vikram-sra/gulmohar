@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="theme-color" content="#000000" />
+  <meta name="theme-color" content="#F6F1E3" />
   <link rel="icon" type="image/png" href="./favicon.png" />
   <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <title>Gulmohar</title>
@@ -32,9 +32,51 @@
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
+    :root {
+      --paper: #F6F1E3; --paper-2: #EEE6D2;
+      --ink: #253226;   --ink-soft: #5C6C58;
+      --gulmohar: #D9502F; --pond: #5E8A86;
+
+      /* daytime: ink on light glass */
+      --hud-ink: rgba(37, 50, 38, 0.78);
+      --hud-ink-strong: #253226;
+      --hud-title-a: #253226;
+      --hud-title-b: #D9502F;
+      --hud-glass-a: rgba(255, 255, 255, 0.44);
+      --hud-glass-b: rgba(255, 255, 255, 0.24);
+      --hud-border: rgba(37, 50, 38, 0.16);
+      --hud-shadow: 0 14px 40px rgba(37, 50, 38, 0.16), 0 2px 8px rgba(37, 50, 38, 0.10),
+                    inset 0 1px 0 rgba(255, 255, 255, 0.66);
+      --hud-halo: 0 1px 10px rgba(246, 241, 227, 0.9);
+      --hud-btn-bg: rgba(255, 255, 255, 0.30);
+      --hud-btn-border: rgba(37, 50, 38, 0.12);
+      --hud-tip-bg: rgba(246, 241, 227, 0.82);
+    }
+
+    body[data-tod="night"] {
+      --hud-ink: rgba(238, 240, 246, 0.80);
+      --hud-ink-strong: #EEF0F6;
+      --hud-title-a: #F2E7DC;
+      --hud-title-b: #F2A98C;
+      --hud-glass-a: rgba(255, 255, 255, 0.14);
+      --hud-glass-b: rgba(255, 255, 255, 0.06);
+      --hud-border: rgba(255, 255, 255, 0.20);
+      --hud-shadow: 0 14px 44px rgba(10, 14, 24, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+      --hud-halo: 0 2px 12px rgba(12, 16, 26, 0.8);
+      --hud-btn-bg: rgba(255, 255, 255, 0.06);
+      --hud-btn-border: rgba(255, 255, 255, 0.13);
+      --hud-tip-bg: rgba(16, 20, 28, 0.68);
+    }
+
+    .ui-overlay, .ui-overlay *, #clock, #hover-label *,
+    .glass-bar-wrapper, .glass-btn, .btn-tip {
+      transition: color 0.9s ease, background 0.9s ease, border-color 0.9s ease,
+                  box-shadow 0.9s ease, text-shadow 0.9s ease;
+    }
+
     body {
       overflow: hidden;
-      background: radial-gradient(circle at center, #3a4b60 0%, #1e2530 100%);
+      background: radial-gradient(circle at center, var(--paper) 0%, var(--paper-2) 100%);
       font-family: 'Outfit', system-ui, sans-serif;
       cursor: crosshair;
     }
@@ -52,7 +94,8 @@
       z-index: 10;
       opacity: 0;
       animation: fadeInSlide 2s cubic-bezier(0.165, 0.84, 0.44, 1) forwards 0.3s;
-      text-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+      color: var(--hud-ink-strong);
+      text-shadow: var(--hud-halo);
     }
     @keyframes fadeInSlide {
       from { opacity: 0; transform: translateY(-24px); }
@@ -63,21 +106,21 @@
       letter-spacing: 0.18rem;
       font-weight: 200;
       text-transform: uppercase;
-      background: linear-gradient(135deg, #fff 0%, #ffd1a4 50%, #ff9a76 100%);
+      background: linear-gradient(135deg, var(--hud-title-a) 0%, var(--hud-title-b) 65%, var(--gulmohar) 100%);
       -webkit-background-clip: text;
       background-clip: text;
       -webkit-text-fill-color: transparent;
       margin-bottom: 6px;
     }
-    .ui-overlay p { font-size: 0.82rem; letter-spacing: 0.12rem; color: #ffd1a4; opacity: 0.85; }
+    .ui-overlay p { font-size: 0.82rem; letter-spacing: 0.12rem; color: var(--hud-title-b); opacity: 0.9; }
     .ui-overlay nav { margin-top: 14px; display: flex; gap: 18px; }
     .ui-overlay nav a {
       font-size: 0.72rem; letter-spacing: 0.16rem; text-transform: uppercase;
-      color: rgba(255,255,255,0.65); text-decoration: none;
+      color: var(--hud-ink); text-decoration: none;
       border-bottom: 1px solid transparent; padding-bottom: 2px;
     }
     .ui-overlay nav a:hover, .ui-overlay nav a:focus-visible {
-      color: #fff; border-bottom-color: #CAA565;
+      color: var(--hud-ink-strong); border-bottom-color: var(--gulmohar);
     }
 
     #clock {
@@ -85,13 +128,13 @@
       top: calc(40px + env(safe-area-inset-top));
       right: calc(40px + env(safe-area-inset-right));
       z-index: 10;
-      color: rgba(255, 255, 255, 0.78);
+      color: var(--hud-ink);
       font-size: 0.82rem;
       letter-spacing: 0.24rem;
       font-weight: 300;
       font-variant-numeric: tabular-nums;
-      text-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-      transition: opacity 0.6s ease, transform 0.6s ease;
+      text-shadow: var(--hud-halo);
+      transition: opacity 0.6s ease, transform 0.6s ease, color 0.9s ease, text-shadow 0.9s ease;
     }
 
     /* --- hover label ------------------------------------------------------ */
@@ -108,11 +151,11 @@
     }
     #hover-label.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
     #hover-label .hl-title {
-      display: block; color: #fff; font-size: 0.95rem; font-weight: 400;
-      letter-spacing: 0.14rem; text-shadow: 0 4px 14px rgba(0,0,0,0.7);
+      display: block; color: var(--hud-ink-strong); font-size: 0.95rem; font-weight: 400;
+      letter-spacing: 0.14rem; text-shadow: var(--hud-halo);
     }
     #hover-label .hl-meta {
-      display: block; color: rgba(255,255,255,0.6); font-size: 0.7rem;
+      display: block; color: var(--hud-ink); font-size: 0.7rem;
       letter-spacing: 0.14rem; margin-top: 3px;
     }
 
@@ -131,50 +174,45 @@
     }
     .glass-bar-wrapper {
       pointer-events: auto;
-      background: linear-gradient(180deg,
-                  rgba(255,255,255,0.15) 0%,
-                  rgba(255,255,255,0.07) 45%,
-                  rgba(255,255,255,0.05) 100%);
-      backdrop-filter: blur(28px) saturate(200%) brightness(1.06);
-      -webkit-backdrop-filter: blur(28px) saturate(200%) brightness(1.06);
+      background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
+      backdrop-filter: blur(28px) saturate(180%) brightness(1.03);
+      -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.03);
       padding: 5px 11px;
       border-radius: 999px;
-      border: 0.5px solid rgba(255,255,255,0.22);
-      box-shadow: 0 14px 44px rgba(0,0,0,0.42), 0 2px 10px rgba(0,0,0,0.22),
-                  inset 0 1px 0 rgba(255,255,255,0.34), inset 0 -1px 0 rgba(255,255,255,0.06);
+      border: 0.5px solid var(--hud-border);
+      box-shadow: var(--hud-shadow);
       display: flex;
       align-items: center;
       gap: 6px;
     }
     .glass-btn {
-      background: rgba(255,255,255,0.04);
-      color: rgba(255,255,255,0.68);
-      border: 0.5px solid rgba(255,255,255,0.10);
+      background: var(--hud-btn-bg);
+      color: var(--hud-ink);
+      border: 0.5px solid var(--hud-btn-border);
       border-radius: 999px;
       width: 30px; height: 30px;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      transition: all 0.15s ease;
+      transition: all 0.15s ease, background 0.9s ease, border-color 0.9s ease, color 0.9s ease;
       padding: 0; position: relative;
       -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
     }
     .glass-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
                      stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
     .glass-btn:hover {
-      background: rgba(255,255,255,0.15); border-color: rgba(255,255,255,0.30);
-      color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
+      background: var(--hud-glass-a); border-color: var(--hud-border);
+      color: var(--hud-ink-strong); box-shadow: inset 0 1px 0 rgba(255,255,255,0.28);
     }
     .glass-btn:active {
-      background: rgba(255,255,255,0.24); border-color: rgba(255,255,255,0.42);
-      transform: scale(0.92);
+      background: var(--hud-glass-b); transform: scale(0.92);
     }
-    .glass-btn:focus-visible { outline: 2px solid rgba(255,255,255,0.75); outline-offset: 2px; }
-    .glass-btn.day-btn { color: #ffd677; background: rgba(255,214,119,0.06); border-color: rgba(255,214,119,0.2); }
-    .glass-btn.day-btn:hover { color: #fff2b2; background: rgba(255,214,119,0.16);
-      border-color: rgba(255,214,119,0.45); box-shadow: 0 0 10px rgba(255,214,119,0.25); }
-    .glass-btn.night-btn { color: #99d2ff; background: rgba(153,210,255,0.06); border-color: rgba(153,210,255,0.2); }
-    .glass-btn.night-btn:hover { color: #d0ebff; background: rgba(153,210,255,0.16);
-      border-color: rgba(153,210,255,0.45); box-shadow: 0 0 10px rgba(153,210,255,0.25); }
+    .glass-btn:focus-visible { outline: 2px solid var(--gulmohar); outline-offset: 2px; }
+    .glass-btn.day-btn { color: var(--gulmohar); background: rgba(217,80,47,0.08); border-color: rgba(217,80,47,0.22); }
+    .glass-btn.day-btn:hover { color: #fff2b2; background: rgba(217,80,47,0.18);
+      border-color: rgba(217,80,47,0.5); box-shadow: 0 0 10px rgba(217,80,47,0.25); }
+    .glass-btn.night-btn { color: var(--pond); background: rgba(94,138,134,0.10); border-color: rgba(94,138,134,0.24); }
+    .glass-btn.night-btn:hover { color: #d0ebff; background: rgba(94,138,134,0.20);
+      border-color: rgba(94,138,134,0.5); box-shadow: 0 0 10px rgba(94,138,134,0.25); }
 
     .btn-tip {
       position: absolute;
@@ -183,15 +221,15 @@
       transform: translateX(-50%) translateY(4px);
       padding: 4px 10px;
       border-radius: 8px;
-      background: rgba(16,20,28,0.65);
+      background: var(--hud-tip-bg);
       backdrop-filter: blur(12px) saturate(160%);
       -webkit-backdrop-filter: blur(12px) saturate(160%);
-      border: 1px solid rgba(255,255,255,0.14);
-      color: rgba(255,255,255,0.9);
+      border: 1px solid var(--hud-border);
+      color: var(--hud-ink-strong);
       font-size: 10px; letter-spacing: 0.12rem; white-space: nowrap;
       pointer-events: none; opacity: 0;
-      transition: opacity 0.18s ease, transform 0.18s ease;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+      transition: opacity 0.18s ease, transform 0.18s ease, background 0.9s ease, color 0.9s ease;
+      box-shadow: var(--hud-shadow);
     }
     .glass-btn:hover .btn-tip,
     .glass-btn .btn-tip.tip-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
@@ -201,16 +239,16 @@
     /* --- loader ----------------------------------------------------------- */
     #loader {
       position: fixed; inset: 0; z-index: 5000;
-      background: #05070b;
+      background: var(--paper);
       display: flex; flex-direction: column; align-items: center; justify-content: center;
       gap: 18px; transition: opacity 0.9s ease;
     }
     #loader .name {
-      color: #ECE7DE; font-size: 0.9rem; letter-spacing: 0.4rem;
+      color: var(--ink); font-size: 0.9rem; letter-spacing: 0.4rem;
       text-transform: uppercase; font-weight: 200;
     }
-    #loader .bar { width: 120px; height: 1px; background: rgba(236,231,222,0.14); overflow: hidden; }
-    #loader .bar i { display: block; height: 100%; width: 40%; background: #CAA565;
+    #loader .bar { width: 120px; height: 1px; background: rgba(37,50,38,0.14); overflow: hidden; }
+    #loader .bar i { display: block; height: 100%; width: 40%; background: var(--gulmohar);
                      animation: slide 1.4s ease-in-out infinite; }
     @keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
 
