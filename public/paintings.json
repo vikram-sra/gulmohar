@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "paintings": [
+    {
+      "id": "untitled-i",
+      "file": "portfolio/untitled-i.svg",
+      "widthIn": 24,
+      "heightIn": 32,
+      "title": "Untitled I",
+      "year": 2026,
+      "medium": "Oil on canvas",
+      "mount": "ground-lean",
+      "anchor": "world",
+      "position": [6.5, 0.35, 9.5],
+      "rotation": [-0.22, -0.6, 0],
+      "frame": "pale-wood"
+    }
+  ]
+}

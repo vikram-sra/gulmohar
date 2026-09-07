@@ -9,6 +9,7 @@ import gsap from 'gsap';
 import { createTorontoSkySystem } from './src/sky/celestial.js';
 import { loadGarden, GARDEN_POINTS } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
+import { loadPlacements, mountAllPaintings } from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 
@@ -96,6 +97,19 @@ class GulmoharApp {
         this._introStarted = false;
         this._contentReady = false;
         this._revealed = false;
+
+        // A dynamic import, so a visitor who never adds ?edit never
+        // downloads the editor chunk -- verify this with
+        // `grep -c TransformControls dist/assets/main.js` after a build,
+        // which must stay 0.
+        this.editMode = new URLSearchParams(location.search).has('edit');
+        if (this.editMode) {
+            document.title = 'Gulmohar — edit';
+            const meta = document.createElement('meta');
+            meta.name = 'robots';
+            meta.content = 'noindex';
+            document.head.appendChild(meta);
+        }
 
         this.setupLoadingManager();
         this.init();
@@ -439,6 +453,7 @@ class GulmoharApp {
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
         this.scene.add(ground);
+        this.groundMesh = ground;   // referenced by the editor for ground-mount raycasts
 
         this.skySystem = createTorontoSkySystem(1800, this.isMobile);
         this.scene.add(this.skySystem.skyRoot);
@@ -497,9 +512,24 @@ class GulmoharApp {
             this.grass = createGrassField(39, grassCount);
             this.scene.add(this.grass);
 
-            this._contentReady = true;
-            this.renderer.shadowMap.needsUpdate = true;
-            this._maybeStartIntro();
+            // Paintings: a 404 on paintings.json resolves to an empty list
+            // rather than rejecting, so a garden with nothing hung yet is not
+            // an error state. Mounted onto named anchors within garden.group
+            // (see resolveAnchor in paintings.js), so they move correctly if
+            // a landmark is ever repositioned.
+            loadPlacements().then((data) => {
+                this.paintings = mountAllPaintings(garden.group, data.paintings, (object, hoverData) => {
+                    this._registerHover(object, hoverData);
+                });
+
+                this._contentReady = true;
+                this.renderer.shadowMap.needsUpdate = true;
+                this._maybeStartIntro();
+
+                if (this.editMode) {
+                    import('./src/edit/editor.js').then(({ attachEditor }) => attachEditor(this));
+                }
+            });
         });
     }
 
@@ -573,6 +603,11 @@ class GulmoharApp {
     }
 
     onClick(e) {
+        // Editor gizmo drags satisfy the same "short, quick pointer" test a
+        // real tap does -- without this, finishing a drag also fires a
+        // scene click, which (finding no landmark under the gizmo) calls
+        // resetScene() and flies the camera away from what was just placed.
+        if (this._suppressClick) return;
         if (e && e.clientX !== undefined) {
             this.pointer.set(
                 (e.clientX / window.innerWidth) * 2 - 1,
