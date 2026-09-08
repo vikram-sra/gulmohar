@@ -7,7 +7,9 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import gsap from 'gsap';
 
 import { createTorontoSkySystem } from './src/sky/celestial.js';
-import { loadGarden, GARDEN_POINTS } from './src/scene/garden.js';
+import { QUALITY, resolveQuality, sampleFrame, resetAdaptive } from './src/quality.js';
+import { windUniforms } from './src/scene/wind.js';
+import { loadGarden, GARDEN_POINTS, groundHeightAt } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
 import { loadPlacements, mountAllPaintings } from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
@@ -91,6 +93,7 @@ class GulmoharApp {
         this.uiVisible = true;
 
         this._hoverTargets = [];
+        this._pickGroups = [];
         this._hoverOwner = new Map();
         this.hovered = null;
         this._hoverDirty = false;
@@ -140,8 +143,17 @@ class GulmoharApp {
     // -- setup --------------------------------------------------------------
 
     init() {
-        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
-        this.isMobile = isMobile;
+        // Resolved before the renderer exists, because `antialias` is a
+        // constructor option that cannot be changed afterwards -- resolveQuality
+        // reads the GPU string from a throwaway context to manage that.
+        resolveQuality();
+        // Kept as a derived alias so nothing downstream has to change at once.
+        // The old definition was a UA regex that missed modern iPads entirely
+        // (iPadOS 13+ reports as a Mac) and was frozen at construction.
+        this.isMobile = QUALITY.tier !== 'high';
+        if (import.meta.env && import.meta.env.DEV) {
+            console.info(`[quality] tier=${QUALITY.tier} (${QUALITY.reason})`);
+        }
 
         this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.4, 6000);
         this.camera.fov = this._fovForAspect(window.innerWidth / window.innerHeight);
@@ -150,19 +162,19 @@ class GulmoharApp {
         this.camera.lookAt(0, 2.8, 0);
 
         this.renderer = new THREE.WebGLRenderer({
-            antialias: !isMobile,        // MSAA plus a composer is heavy bandwidth on phones
+            antialias: QUALITY.antialias,   // MSAA plus a composer is heavy bandwidth on phones
             powerPreference: 'high-performance',
             alpha: false,
             stencil: false,
             depth: true
         });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobile ? 1.25 : 1.5));
+        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.pixelRatioCap));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.08;
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = true;
-        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.shadowMap.type = QUALITY.shadowType;
         // The scene is static apart from the sun: nothing moves, so re-rendering
         // both shadow maps every frame draws ~686k triangles for an identical
         // result. animate() flips needsUpdate only when the sun has actually
@@ -210,7 +222,27 @@ class GulmoharApp {
         this.controls.autoRotate = false;               // released when the intro descent begins
         this.controls.autoRotateSpeed = -0.6;
 
-        this.scene.fog = new THREE.FogExp2(0xcbdcdd, 0.005);   // was 0.002 (none); 0.011 washed it out
+        // autoRotate keeps adding its own delta every frame regardless of
+        // user input, so a drag while it's running fights the ambient spin
+        // instead of replacing it -- the drag "doesn't stick". Suspend it for
+        // the drag and a short settle afterward, rather than fighting it.
+        // OrbitControls fires the same 'start' event for a one-finger drag
+        // and a two-finger pinch, so this also covers pinch-zoom: touching
+        // the scene at all hands full control over, cancelling whatever's
+        // left of the scripted intro fly-in rather than fighting it.
+        this.controls.addEventListener('start', () => {
+            clearTimeout(this._dragRotateResumeTimer);
+            this.controls.autoRotate = false;
+            if (this._introTl) { this._introTl.kill(); this._introTl = null; }
+        });
+        this.controls.addEventListener('end', () => {
+            clearTimeout(this._dragRotateResumeTimer);
+            this._dragRotateResumeTimer = setTimeout(() => {
+                if (!this.motionPaused && this._introStarted) this.controls.autoRotate = true;
+            }, 2500);
+        });
+
+        this.scene.fog = new THREE.FogExp2(0xcbdcdd, 0.0032);   // was 0.005 -- crept in well before the ground's own edge fade, thickening the corners early
 
         this.setupLighting();
         this.setupEnvironment();
@@ -227,7 +259,19 @@ class GulmoharApp {
             clearTimeout(resizeTimer);
             resizeTimer = setTimeout(() => this.onResize(), 60);
         }, { passive: true });
+        // A backgrounded tab produces garbage frame times; throw the window
+        // away on return rather than adapting down off throttled frames.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) resetAdaptive();
+        });
         window.addEventListener('pointermove', (e) => this.onPointerMove(e), { passive: true });
+
+        // Home is now only ever explicit, since a missed click no longer does
+        // it. Escape is the keyboard route; the dock's Home button is the
+        // pointer one.
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') { this.resetScene(); this.resetUIHideTimer(); }
+        });
 
         let startX = 0, startY = 0, startTime = 0;
         window.addEventListener('pointerdown', (e) => {
@@ -248,7 +292,11 @@ class GulmoharApp {
         try { this.renderer.compile(this.scene, this.camera); } catch (e) { /* noop */ }
 
         // Dev-only handle, so the scene can be inspected from the console.
-        if (import.meta.env && import.meta.env.DEV) window.__gulmohar = this;
+        if (import.meta.env && import.meta.env.DEV) {
+            window.__gulmohar = this;
+            window.__quality = QUALITY;   // the live singleton, not a re-imported copy
+            window.__wind = windUniforms; // ditto -- re-importing gives a phantom copy
+        }
 
         this._lastFrame = performance.now();
         this.animate();
@@ -269,7 +317,10 @@ class GulmoharApp {
         // map now only re-renders at a fixed ~12Hz (see animate()) rather
         // than every frame, which is what makes spending more of the budget
         // on resolution here affordable: 4096 brings it to ~1.66cm/texel.
-        const shadowRes = this.isMobile ? 1024 : 4096;
+        // 3072, not 4096: two 4096 maps are 4x the fill of 2048 each time the
+        // 12Hz cadence fires, and at this frustum 3072 still resolves leaf
+        // detail (~4.4cm/texel) well past the point 2048 went blocky.
+        const shadowRes = QUALITY.shadowMapSize;
         // Compact shadow frustum tightly framing the garden for high performance and crisp shadows
         const d = 34;
 
@@ -279,13 +330,18 @@ class GulmoharApp {
         [this.sunLight, this.moonLight].forEach((light) => {
             light.castShadow = true;
             light.shadow.mapSize.set(shadowRes, shadowRes);
-            light.shadow.camera.near = 5.0;
+            // near 10 rather than 5: the lights sit 1600 units out, nothing is
+            // within 10 units of them, and pulling the near plane in wastes
+            // depth precision across the whole range that IS occupied.
+            light.shadow.camera.near = 10.0;
             light.shadow.camera.far = 600;
             Object.assign(light.shadow.camera, { left: -d, right: d, top: d, bottom: -d });
             light.shadow.camera.updateProjectionMatrix();
             light.shadow.bias = -0.0001;
-            light.shadow.normalBias = 0.025;
-            light.shadow.radius = 1.8;
+            light.shadow.normalBias = 0.018;   // finer texels need less bias (duar.one)
+            // Now actually has an effect -- radius is honoured by PCFShadowMap
+            // but silently ignored by PCFSoftShadowMap, which this used to be.
+            light.shadow.radius = QUALITY.shadowRadius;
             this.scene.add(light);
             this.scene.add(light.target);
         });
@@ -380,8 +436,29 @@ class GulmoharApp {
     }
 
     setupEnvironment() {
-        // Ground: compact garden disc (radius 42m) with soft organic edge fade
-        const groundGeo = new THREE.CircleGeometry(42, 48);
+        // Ground: garden disc with a soft organic edge fade. The maple/pond/
+        // gazebo corners sit at r=28-31 and the maple's canopy reaches ~37, so
+        // the fade band (below) has to start beyond that -- at the old r=31 it
+        // began at the maple's own trunk and dissolved it into fog. 60m was an
+        // overcorrection: a bare tan ring past the grass, and a lot of
+        // transparent fill for nothing.
+        // A tessellated plane rather than a CircleGeometry fan, because the
+        // ground now has relief: CircleGeometry has a centre vertex and a rim
+        // ring and nothing in between, so there is simply nowhere to put a
+        // berm. The disc shape still comes from the radial alpha fade in the
+        // shader below, which discards everything past the edge, so the square
+        // corners never draw. ~20k triangles for 1m of displacement
+        // resolution, against a ~1M scene -- immaterial.
+        const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
+        groundGeo.rotateX(-Math.PI / 2);
+        {
+            const pos = groundGeo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                pos.setY(i, groundHeightAt(pos.getX(i), pos.getZ(i)));
+            }
+            pos.needsUpdate = true;
+            groundGeo.computeVertexNormals();
+        }
 
         // Procedural organic lawn texture canvas
         const canvas = document.createElement('canvas');
@@ -415,14 +492,11 @@ class GulmoharApp {
             polygonOffsetUnits: 1
         });
         this.groundMat.onBeforeCompile = (shader) => {
-            // Fed from GARDEN_POINTS so the cutout follows the pond if it moves,
-            // rather than being a second copy of its coordinates in a string.
-            shader.uniforms.uPondCentre = { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) };
             shader.vertexShader = 'varying vec3 vGroundWorldPos;\n' + shader.vertexShader.replace(
                 '#include <worldpos_vertex>',
                 '#include <worldpos_vertex>\n vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
             );
-            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\nuniform vec2 uPondCentre;\n' + shader.fragmentShader.replace(
+            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\n' + shader.fragmentShader.replace(
                 '#include <dithering_fragment>',
                 `#include <dithering_fragment>
                  // A tiled photograph repeats exactly every tile, which the eye
@@ -435,27 +509,65 @@ class GulmoharApp {
                               + sin(vGroundWorldPos.x * 0.037 - 2.1) * sin(vGroundWorldPos.z * 0.043 + 0.4) * 0.6;
                  gl_FragColor.rgb *= 1.0 + detile * 0.06;
 
+                 // The bake is a photograph of bare tan gravel, but this is a
+                 // garden -- grade it toward lawn. Note this is still LINEAR
+                 // HDR here, not sRGB: the scene renders through an
+                 // EffectComposer, so <tonemapping_fragment> and
+                 // <colorspace_fragment> above are no-ops and OutputPass does
+                 // both at the end. Values can exceed 1, so anything that
+                 // scales by luminance blows the ground out to white.
+                 // Instead: keep each fragment's own luminance and only rotate
+                 // its hue toward green, which is exposure-independent and
+                 // leaves the photo's pebbles, wear and shading fully intact.
+                 // The tint is luma-weighted to ~0.93 so it darkens a touch
+                 // rather than brightening. A second low-frequency sine field
+                 // varies HOW green each area gets, so it reads as patchy turf
+                 // over worn earth instead of one flat wash of colour.
+                 float groundLum = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+                 vec3 greened = groundLum * vec3(0.60, 1.08, 0.45);
+                 // NB: not "patch" -- that is a reserved word in GLSL ES 3.0
+                 // (tessellation), and naming it that failed the whole ground
+                 // shader to compile, which silently dropped the entire ground
+                 // plane and left the sky dome showing below the horizon.
+                 float turfPatch = sin(vGroundWorldPos.x * 0.055 + 0.6) * sin(vGroundWorldPos.z * 0.047 - 1.2)
+                                 + sin(vGroundWorldPos.x * 0.021 - 1.7) * sin(vGroundWorldPos.z * 0.019 + 2.2) * 0.5;
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, greened, clamp(0.62 + turfPatch * 0.22, 0.30, 0.88));
+
+                 // Below the waterline the ground is a pond bed, not lawn --
+                 // without this you see bright grass straight through the
+                 // water. Keyed off world height so it follows the basin
+                 // exactly and needs no second copy of its radius.
+                 float wet = smoothstep(-0.15, -1.05, vGroundWorldPos.y);
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb,
+                                        gl_FragColor.rgb * vec3(0.34, 0.40, 0.32), wet);
+
                  float r = length(vGroundWorldPos.xz);
                  // Two-stage horizon: mix toward the fog first, then fade alpha so
                  // the real sky shows through. A colour mix alone cannot match a
                  // horizon that is warm toward the sun and cool away from it.
                  #ifdef USE_FOG
-                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(31.0, 41.5, r));
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(38.0, 47.0, r));
                  #endif
-                 gl_FragColor.a *= 1.0 - smoothstep(34.0, 42.0, r);
+                 gl_FragColor.a *= 1.0 - smoothstep(41.0, 49.0, r);
                  // Seamless cutout for the sunken pond basin.
-                 float distPond = length(vGroundWorldPos.xz - uPondCentre);
-                 gl_FragColor.a *= smoothstep(5.4, 7.4, distPond);
+                 // No pond cutout any more. The lawn used to be punched
+                 // through with a radial alpha hole so the pond model could sit
+                 // in it, and that hole's soft edge was itself visible as a
+                 // circular ring from low angles -- tightening the ramp only
+                 // made it a harder ring. The ground now dips into a real
+                 // basin instead (groundHeightAt in garden.js), so the lawn is
+                 // continuous everywhere and there is simply no edge to see.
                  if (gl_FragColor.a <= 0.002) discard;`
             );
         };
         const ground = new THREE.Mesh(groundGeo, this.groundMat);
-        ground.rotation.x = -Math.PI / 2;
+        // rotateX is already baked into the geometry above, so the mesh
+        // itself stays unrotated -- the displaced Y is world Y.
         ground.receiveShadow = true;
         this.scene.add(ground);
         this.groundMesh = ground;   // referenced by the editor for ground-mount raycasts
 
-        this.skySystem = createTorontoSkySystem(1800, this.isMobile);
+        this.skySystem = createTorontoSkySystem(1800, QUALITY.skySegW, QUALITY.skySegH);
         this.scene.add(this.skySystem.skyRoot);
 
         // A baked top-down photograph of the ground, not the photogrammetry
@@ -482,7 +594,7 @@ class GulmoharApp {
             this.garden = garden;
             this.scene.add(garden.group);
 
-            const aniso = this.isMobile ? 4 : this._maxAnisotropy();
+            const aniso = Math.min(QUALITY.anisotropy, this._maxAnisotropy());
             const seenTex = new Set();
             garden.group.traverse((child) => {
                 if (!child.isMesh || !child.material) return;
@@ -499,8 +611,12 @@ class GulmoharApp {
                 });
             });
 
-            garden.interactives.forEach(({ object, data }) => {
+            garden.interactives.forEach(({ object, targetGroup, data }) => {
                 this._registerHover(object, data);
+                // Keep the landmark's actual geometry too. The hitboxes are
+                // coarse cylinders, so a click on visible canopy or rock that
+                // falls outside one would otherwise register as "nothing".
+                if (targetGroup) this._pickGroups.push({ group: targetGroup, data });
             });
 
             // One InstancedMesh, one draw call, castShadow false -- 8,000
@@ -508,9 +624,40 @@ class GulmoharApp {
             // shadows nobody could resolve at 15cm anyway. Thinned on mobile
             // rather than removed, so the world doesn't visibly change shape
             // by device -- just how dense the lawn reads.
-            const grassCount = Math.round((this.isMobile ? 0.4 : 1.0) * 7000);
-            this.grass = createGrassField(39, grassCount);
+            // Denser and wider: 39m left a bare ring between the grass and the
+            // ground's own edge fade (which starts at 41), and the field was
+            // thin enough that the tan bake showed through as the dominant
+            // colour. Still one draw call, still no shadow casting.
+            // Real instanced grass cards (6 tris each) rather than procedural
+            // blades (12) -- cheaper AND better looking. Allocated at the
+            // tier's count; the adaptive loop lowers each InstancedMesh's
+            // `count` at runtime, which Three treats as a draw range, so it
+            // costs no reallocation and no matrix re-upload.
+            this.grass = createGrassField(garden.grassCards, QUALITY.grassRadius, QUALITY.grassCount);
             this.scene.add(this.grass);
+
+            // A second, much sparser layer of larger vegetation clumps from
+            // grass_vegitation_mix.glb. These are ~380 triangles each rather
+            // than 6, so they are scattered in the low hundreds purely to
+            // break up the uniformity of the grass -- the mix's other meshes
+            // (2.7k and 4.1k tris) were left behind as far too heavy to
+            // instance at any useful density.
+            this.vegClumps = createGrassField(
+                garden.vegClumps, QUALITY.grassRadius, QUALITY.vegClumpCount,
+                { targetHeight: 0.62, name: 'VegetationClumps', clearMargin: 0.4 }
+            );
+            this.scene.add(this.vegClumps);
+
+            // The mix's heavy clumps -- 2.7k and 4.1k triangles each, versus 6
+            // for a grass card. Far too expensive to scatter at any density,
+            // but a few dozen read as thick established planting and give the
+            // lawn somewhere to build up to. Kept off the path with a wider
+            // clear margin so they never swallow it.
+            this.denseGrass = createGrassField(
+                garden.denseGrass, QUALITY.grassRadius * 0.82, QUALITY.denseGrassCount,
+                { targetHeight: 1.15, name: 'DenseGrass', clearMargin: 1.2 }
+            );
+            this.scene.add(this.denseGrass);
 
             // Paintings: a 404 on paintings.json resolves to an empty list
             // rather than rejecting, so a garden with nothing hung yet is not
@@ -534,7 +681,8 @@ class GulmoharApp {
     }
 
     setupDustMotes() {
-        const count = 100;
+        const count = QUALITY.dustCount;
+        if (count <= 0) return;   // low tier drops them entirely
         const pos = new Float32Array(count * 3);
         for (let i = 0; i < count; i++) {
             pos[i * 3] = (Math.random() - 0.5) * 120;
@@ -556,6 +704,22 @@ class GulmoharApp {
     // Raycasting a flat array of declared targets, rather than the whole scene
     // graph: intersectObjects(scene.children, true) descends into the sky dome,
     // the ground and every mote of dust.
+    /**
+     * Fallback pick against a landmark's real meshes, for clicks that miss its
+     * coarse hitbox cylinder. Only ever runs on click, never per frame.
+     */
+    _pickByGeometry() {
+        let best = null, bestDist = Infinity;
+        for (const entry of this._pickGroups) {
+            const hits = this.raycaster.intersectObject(entry.group, true);
+            if (hits.length && hits[0].distance < bestDist) {
+                bestDist = hits[0].distance;
+                best = entry.data;
+            }
+        }
+        return best;
+    }
+
     _registerHover(object, data) {
         this._hoverTargets.push(object);
         this._hoverOwner.set(object, data);
@@ -616,22 +780,47 @@ class GulmoharApp {
         }
         this.raycaster.setFromCamera(this.pointer, this.camera);
         const hits = this.raycaster.intersectObjects(this._hoverTargets, true);
-        let targetData = null;
+
+        // Every distinct landmark under the cursor, nearest first. The
+        // landmark hitboxes are generous cylinders that overlap heavily, so
+        // taking only the nearest made anything standing behind another tree
+        // permanently unclickable -- the ray never got past whichever hitbox
+        // happened to be in front.
+        const candidates = [];
         for (let i = 0; i < hits.length; i++) {
             let cur = hits[i].object;
             while (cur) {
                 if (this._hoverOwner.has(cur)) {
-                    targetData = this._hoverOwner.get(cur);
+                    const data = this._hoverOwner.get(cur);
+                    if (!candidates.includes(data)) candidates.push(data);
                     break;
                 }
                 cur = cur.parent;
             }
-            if (targetData) break;
         }
 
-        if (!targetData && this.hovered) {
-            targetData = this.hovered;
+        // Clicking the same spot again steps to the next one behind, then
+        // wraps. A click more than a few pixels away is a new selection and
+        // starts from the front again.
+        let targetData = null;
+        if (candidates.length) {
+            const nx = e && e.clientX !== undefined ? e.clientX : 0;
+            const ny = e && e.clientY !== undefined ? e.clientY : 0;
+            const samePlace = this._lastPick
+                && Math.hypot(nx - this._lastPick.x, ny - this._lastPick.y) < 24
+                && (performance.now() - this._lastPick.t) < 4000;
+            const idx = samePlace ? (this._lastPick.i + 1) % candidates.length : 0;
+            targetData = candidates[idx];
+            this._lastPick = { x: nx, y: ny, i: idx, t: performance.now() };
+        } else {
+            this._lastPick = null;
         }
+
+        if (!targetData && this.hovered) targetData = this.hovered;
+        // Last resort: the coarse hitbox cylinders miss plenty of real
+        // clicks -- on outlying canopy, on a rock at the pond's edge -- so
+        // fall back to the landmarks' actual geometry before giving up.
+        if (!targetData) targetData = this._pickByGeometry();
 
         if (targetData && targetData.cameraTarget) {
             const { pos, lookAt } = targetData.cameraTarget;
@@ -647,7 +836,12 @@ class GulmoharApp {
             });
             this.setUIVisibility(true);
         } else {
-            this.resetScene();
+            // A click that hits nothing used to fly the camera home. With
+            // hitboxes this coarse that fired constantly -- most "misses" were
+            // aimed at something -- and being yanked back to the gulmohar is a
+            // far worse outcome than a click doing nothing. Going home is now
+            // only ever explicit: the dock's Home button, or Escape.
+            this.setUIVisibility(true);
         }
     }
 
@@ -670,22 +864,69 @@ class GulmoharApp {
         if (this._introStarted || !this._contentReady || !this._revealed) return;
         this._introStarted = true;
 
+        // A snap to a distant bird's-eye followed by a slow-starting ease
+        // read as a dead pause before anything moved. Starting from a small
+        // pull-back on the final framing instead, eased straight into the
+        // ambient rotation at the same moment the loader fades, means the
+        // very first thing a visitor sees is already in motion.
         const target = { x: 12.8, y: 3.2, z: 11.2 };
-        this.camera.position.set(0, 36, 64);
+        this.camera.position.set(target.x * 1.3, target.y + 4.5, target.z * 1.3);
         this.controls.target.set(0, 2.8, 0);
 
         const tl = gsap.timeline();
         this._introTl = tl;
-        tl.to(this.camera.position, { ...target, duration: 6.5, ease: 'sine.inOut' });
-        tl.call(() => { this.controls.autoRotate = !this.motionPaused; }, null, 0.6);
+        tl.to(this.camera.position, { ...target, duration: 2.4, ease: 'sine.out' }, 0);
+        tl.call(() => { this.controls.autoRotate = !this.motionPaused; }, null, 0);
         tl.fromTo(this.controls, { autoRotateSpeed: 0 },
-            { autoRotateSpeed: -0.4, duration: 4, ease: 'sine.inOut' }, 0.6);
+            { autoRotateSpeed: -0.4, duration: 3.2, ease: 'sine.inOut' }, 0);
+    }
+
+    /**
+     * Applies a runtime quality change. Only levers that are genuinely free
+     * mid-session: pixel ratio, and InstancedMesh draw ranges.
+     */
+    _applyQualityChange({ direction, pixelRatio, instanceScale }) {
+        const target = Math.min(window.devicePixelRatio, pixelRatio);
+        if (Math.abs(this.renderer.getPixelRatio() - target) > 0.01) {
+            this.renderer.setPixelRatio(target);
+            // Must follow setPixelRatio: EffectComposer.setSize re-reads the
+            // renderer's pixel ratio, and without this its render targets stay
+            // at the old resolution and the change does nothing.
+            this.composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // `count` is a draw range, not an allocation -- lowering it costs
+        // nothing and needs no matrix re-upload. Grass is now a Group of
+        // per-card InstancedMeshes, so it comes through this same traversal
+        // via userData.baseCount rather than needing a special case.
+        this.scene.traverse((o) => {
+            if (o.isInstancedMesh && o.userData.baseCount) {
+                o.count = Math.max(1, Math.round(o.userData.baseCount * instanceScale));
+            }
+        });
+
+        this.renderer.shadowMap.needsUpdate = true;
+        if (import.meta.env && import.meta.env.DEV) {
+            console.info(`[quality] adapt ${direction}: pixelRatio=${target.toFixed(2)} instanceScale=${instanceScale}`);
+        }
     }
 
     resetScene() {
         gsap.to(this.camera.position, { x: 12.8, y: 3.2, z: 11.2, duration: 1.8, ease: 'power2.inOut' });
         gsap.to(this.controls.target, { x: 0, y: 2.8, z: 0, duration: 1.8, ease: 'power2.inOut' });
         this.setUIVisibility(true);
+    }
+
+    // A time-warp tap swaps the whole sky in one step -- easy to miss when
+    // framed tight on one landmark. Pulling back gives a wider, more legible
+    // view of the change without touching where the visitor was looking.
+    _pullBackForLightChange() {
+        const offset = this.camera.position.clone().sub(this.controls.target);
+        const dist = offset.length();
+        const newDist = Math.min(this.controls.maxDistance * 0.92, dist * 1.55);
+        if (newDist <= dist) return;
+        const newPos = this.controls.target.clone().addScaledVector(offset.normalize(), newDist);
+        gsap.to(this.camera.position, { x: newPos.x, y: newPos.y, z: newPos.z, duration: 1.5, ease: 'sine.inOut' });
     }
 
     onResize() {
@@ -699,11 +940,24 @@ class GulmoharApp {
 
     // -- motion & UI --------------------------------------------------------
 
-    // "Paused" means the same thing everywhere: the sky clock, the ground rings
-    // and the camera orbit all stop. A half-moving state is one no label can
-    // describe honestly.
+    // "Paused" means the same thing everywhere: the sky clock and the camera
+    // orbit both stop. A half-moving state is one no label can describe
+    // honestly. The `rotation: false` option is the one exception, used by the
+    // time buttons, which resume the clock without also restarting the orbit
+    // under someone who is deliberately holding a view.
     setMotionPaused(paused, { rotation = true } = {}) {
         this.motionPaused = paused;
+
+        // Resuming has to restart the sky clock too, or "Resume motion" is a
+        // lie. Tapping Noon / Midnight / Time-warp parks the sun at a chosen
+        // hour by setting daySpeed to 0; before this, unpausing started the
+        // camera orbit again but left the clock frozen at that hour with no
+        // way to restart it short of a reload. Only a STOPPED clock is
+        // restored -- a deliberate time-lapse speed set by holding a time
+        // button is left alone, and the long-press handlers that call this
+        // before ramping daySpeed themselves are unaffected.
+        if (!paused && this.daySpeed <= 0) this.daySpeed = AMBIENT_DAY_SPEED;
+
         if (rotation) this.controls.autoRotate = !paused && this._introStarted;
         if (this.motionBtn) {
             this.motionBtn.innerHTML = paused ? this._motionIcons.play : this._motionIcons.pause;
@@ -847,7 +1101,11 @@ class GulmoharApp {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
             if (this.daySpeed < 0.02) this.daySpeed = 0.02;
             this.daySpeed = Math.min(0.65, this.daySpeed * 1.08);
-        }, () => { this.sunAngle = (this.sunAngle + Math.PI / 12) % (Math.PI * 2); this.daySpeed = 0; });
+        }, () => {
+            this.sunAngle = (this.sunAngle + Math.PI / 12) % (Math.PI * 2);
+            this.daySpeed = 0;
+            this._pullBackForLightChange();
+        });
 
         const moonBtn = createBtn(icons.night, null, 'Midnight · Hold for a time-lapse');
         moonBtn.classList.add('night-btn');
@@ -936,13 +1194,35 @@ class GulmoharApp {
         const sunFactor = THREE.MathUtils.smoothstep(sky.sunAlt, -0.05, 0.16);
         const moonFactor = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.04, 0.10);
 
+        // Shadow STRENGTH ramps with the light instead of snapping on at a
+        // threshold. `castShadow` is a hard boolean, so toggling it at
+        // sunFactor 0.06 made a full-strength shadow appear out of nothing at
+        // dawn and vanish at dusk. `shadow.intensity` is a plain uniform --
+        // it costs no shadow-map re-render and updates every frame, not on
+        // the 12Hz cadence -- so it can fade continuously. castShadow still
+        // gates the (expensive) map render, but now only flips once the
+        // intensity has already reached zero, making the switch invisible.
+        // Ramped against ALTITUDE, not against sunFactor. sunFactor is itself
+        // a smoothstep over sunAlt -0.05..0.16 -- barely 12 degrees -- so
+        // smoothstepping it again saturated to 1 while the sun was still very
+        // low, and the shadow still slammed on. Driving from the raw altitude
+        // over a deliberately WIDER band than the light uses means the shadow
+        // starts weakening well before sunset and is already near zero by the
+        // time the sun/moon caster handover happens, which is what makes the
+        // switch invisible rather than merely quick.
+        const sunShadow = THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.38);
+        const moonShadow = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.02, 0.34) * moonFactor;
+
         const fullSunIntensity = 3.6 + Math.sin(Math.max(0.0, sky.sunAlt)) * 1.8;
         this.sunLight.intensity = sunFactor * fullSunIntensity;
-        this.sunLight.castShadow = sunFactor > 0.06 && sunFactor >= moonFactor;
+        this.sunLight.shadow.intensity = sunShadow;
+        this.sunLight.castShadow = sunShadow > 0.002 && sunFactor >= moonFactor;
 
         const fullMoonIntensity = Math.max(2.4, sky.mH * 3.0);
         this.moonLight.intensity = moonFactor * fullMoonIntensity;
-        this.moonLight.castShadow = moonFactor > 0.06 && moonFactor > sunFactor;
+        // Moonlight shadows stay softer than the sun's even at full moon.
+        this.moonLight.shadow.intensity = moonShadow * 0.72;
+        this.moonLight.castShadow = moonShadow > 0.002 && moonFactor > sunFactor;
 
         // Re-render the shadow maps on a fixed cadence, not purely on sun-angle
         // delta. A pure angle gate looked right in isolation and was wrong in
@@ -957,12 +1237,31 @@ class GulmoharApp {
         // still forces an immediate refresh -- otherwise it would render with
         // no map at all until the next scheduled tick.
         const castingKey = (this.sunLight.castShadow ? 1 : 0) | (this.moonLight.castShadow ? 2 : 0);
-        const shadowDue = (nowMs - (this._lastShadowMs ?? 0)) > 82;
-        if (shadowDue || castingKey !== this._lastCastingKey) {
+        const shadowDue = (nowMs - (this._lastShadowMs ?? 0)) > QUALITY.shadowIntervalMs;
+        // The time gate alone re-rendered ~691k triangles twelve times a second
+        // even with the sun completely still -- which is the common case, since
+        // pausing motion or tapping Noon/Midnight sets daySpeed to 0. Requiring
+        // the sun to have actually moved makes a static scene cost nothing at
+        // all, while the time gate still paces a MOVING sun smoothly (an
+        // angle-only gate, as duar.one uses, fired ~3Hz at this day speed and
+        // read as jitter). Anything else needing a refresh -- a late landmark,
+        // the editor placing a painting -- sets needsUpdate directly, and Three
+        // clears the flag itself after rendering.
+        const sunMoved = Math.abs(this.sunAngle - (this._lastShadowAngle ?? 1e9)) > 1e-5;
+        const shadowFrame = (shadowDue && sunMoved) || castingKey !== this._lastCastingKey;
+        if (shadowFrame) {
             this._lastShadowMs = nowMs;
+            this._lastShadowAngle = this.sunAngle;
             this._lastCastingKey = castingKey;
             this.renderer.shadowMap.needsUpdate = true;
         }
+
+        // Adaptive quality. Frames that re-render the shadow map are excluded:
+        // the cadence makes roughly one frame in five systematically expensive,
+        // and including them drags the median onto the shadow frame and
+        // misreports the steady-state cost permanently.
+        const change = sampleFrame(dt * 1000, shadowFrame);
+        if (change) this._applyQualityChange(change);
 
         const isMorning = Math.sin(this.sunAngle - Math.PI / 2) < 0;
         // Sun elevation warmth factor (1 at horizon/dawn/dusk, 0 high in sky)

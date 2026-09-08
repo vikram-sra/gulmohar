@@ -78,12 +78,12 @@ export function calculateTorontoSunMoon(timeAngle, radius = 1600) {
 /**
  * Creates the Toronto celestial sky system with the real ESO all-sky panorama skydome
  */
-export function createTorontoSkySystem(radius = 1800, isMobile = false) {
+export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
     const skyRoot = new THREE.Group();
     skyRoot.name = "TorontoSkySystem";
 
     // --- 1. Atmospheric Sky Dome ---
-    const skyDomeGeo = new THREE.SphereGeometry(radius * 0.98, isMobile ? 24 : 32, isMobile ? 16 : 24);
+    const skyDomeGeo = new THREE.SphereGeometry(radius * 0.98, segW, segH);
     const skyDomeMat = new THREE.ShaderMaterial({
         uniforms: {
             uZenithColor: { value: new THREE.Color(0x1a4674) },
@@ -171,7 +171,7 @@ export function createTorontoSkySystem(radius = 1800, isMobile = false) {
     esoMwTexture.magFilter = THREE.LinearFilter;
     esoMwTexture.generateMipmaps = false;
 
-    const mwGeo = new THREE.SphereGeometry(radius * 0.95, isMobile ? 32 : 48, isMobile ? 24 : 36);
+    const mwGeo = new THREE.SphereGeometry(radius * 0.95, Math.round(segW * 1.5), Math.round(segH * 1.5));
     const mwMat = new THREE.ShaderMaterial({
         uniforms: {
             uMwTex: { value: esoMwTexture },

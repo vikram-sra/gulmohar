@@ -109,7 +109,7 @@ uniform float uWindStrength;
     // Leaf-scale flutter: phase from LOCAL position, not world position -- a
     // world-space phase term varies across a single leaf's own vertices and
     // tears it apart instead of fluttering it as a whole.
-    float flutter = sin(uWindTime * ${(5.0 * speedMult).toFixed(4)} + dot(transformed.xyz, vec3(3.0))) * 0.05;
+    float flutter = sin(uWindTime * ${(5.0 * speedMult).toFixed(4)} + dot(transformed.xyz, vec3(3.0))) * 0.10;
 
     // Base of the mesh stays anchored, the tip responds fully -- normalised
     // to THIS mesh's own bounding box, not an assumed metre-scale space.
@@ -125,23 +125,43 @@ uniform float uWindStrength;
         );
     };
 
-    material.onBeforeCompile = inject;
+    // A bare assignment here silently drops whatever onBeforeCompile the
+    // material already carried -- which is what threw away the pastel colour
+    // grade on exactly the meshes that sway (every leaf and flower), leaving
+    // the canopy vivid while the trunk graded correctly. Chain instead. The
+    // original is stashed on userData so repeated calls -- one material is
+    // shared across many leaf meshes -- always chain the SAME original rather
+    // than wrapping the previous wind wrapper again and again, which would
+    // duplicate the injected GLSL into a redefinition error.
+    if (material.userData.__preWindCompile === undefined) {
+        material.userData.__preWindCompile = material.onBeforeCompile || null;
+    }
+    const preWind = material.userData.__preWindCompile;
+    material.onBeforeCompile = preWind
+        ? function (shader, renderer) { preWind.call(this, shader, renderer); inject(shader, renderer); }
+        : inject;
     material.needsUpdate = true;
 
-    // The shadow must move with the leaf, or a swaying canopy casts a rigid
-    // shadow that visibly detaches from it. Same injection, same uniforms --
-    // but NOT the same cacheKey. Every leaf/flower/bud mesh gets its own
-    // MeshDepthMaterial with a DIFFERENT amplitude baked into its GLSL, and
-    // without a distinguishing key here, Three treats them as
-    // interchangeable and reuses whichever depth program compiled first --
-    // silently rendering some meshes' shadows with another mesh's amplitude
-    // and wave phase. That mismatch is what produced a chaotic, flickering,
-    // "pixelated" shadow: not a resolution problem, a wrong-constants one.
-    if (mesh.customDepthMaterial) {
-        mesh.customDepthMaterial.customProgramCacheKey = () => cacheKey + '_depth';
-        mesh.customDepthMaterial.onBeforeCompile = inject;
-        mesh.customDepthMaterial.needsUpdate = true;
-    }
+    // The depth pass deliberately does NOT get the wind.
+    //
+    // It used to, on the reasoning that a swaying canopy should not cast a
+    // rigid shadow. But the shadow map is CACHED and re-rendered on a ~12Hz
+    // cadence, while uWindTime advances every frame -- so each refresh
+    // captured the leaves at a different point in the gust and the whole
+    // dappled pattern snapped to a new position twelve times a second. That
+    // strobing is what reads as jittery, un-smooth shadows, and no amount of
+    // filtering or resolution fixes it, because the problem is temporal, not
+    // spatial.
+    //
+    // The two features are simply incompatible: you can have wind-accurate
+    // shadows or a cached shadow map, not both. Cached wins easily here --
+    // it is ~691k triangles per refresh -- so the leaves now cast from their
+    // rest pose. The shadow then changes only with the sun, in tiny smooth
+    // increments, and holds perfectly still between them. The cost is a
+    // sub-leaf-width mismatch between a leaf and its own shadow, invisible
+    // in a soft dapple; the benefit is that the shadow stops flickering.
+    // It also makes the depth pass cheaper, since it no longer runs the
+    // wind maths at all.
 }
 
 // ---------------------------------------------------------------------------
@@ -150,7 +170,9 @@ uniform float uWindStrength;
 // seconds, and three detuned (non-harmonic) sine terms keep even a sustained
 // "breezy" stretch wandering instead of holding one fixed value.
 // ---------------------------------------------------------------------------
-const BASE_STRENGTH = 0.15;   // was 0.30 -- read as trees wobbling, not swaying
+// 0.30 read as trees wobbling; 0.15 was so restrained it read as no wind at
+// all. 0.24 sits between them: clearly moving, still a breeze not a gale.
+const BASE_STRENGTH = 0.24;
 
 export function createWindEnvelope() {
     return { gate: 1, target: 1, hold: 6 + Math.random() * 10 };
@@ -168,7 +190,7 @@ export function updateWindEnvelope(env, dt, elapsedSeconds) {
         env.target = goingCalm ? 0 : 1;
         // Calm stretches shorter than breezy ones, or the garden reads as
         // still more often than it reads as windy.
-        env.hold = goingCalm ? (8 + Math.random() * 10) : (35 + Math.random() * 45);
+        env.hold = goingCalm ? (4 + Math.random() * 5) : (40 + Math.random() * 50);
     }
     env.gate += (env.target - env.gate) * (1 - Math.exp(-dt / 4.0));
 

@@ -4,6 +4,7 @@ import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.j
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getAssetUrl } from '../utils/paths.js';
 import { isFoliageForWind, injectFoliageWind, createWindEnvelope, updateWindEnvelope } from './wind.js';
+import { QUALITY } from '../quality.js';
 
 // Garden layout coordinates:
 // - Center: Gulmohar Tree (0, 0, 0)
@@ -24,8 +25,111 @@ export const GARDEN_POINTS = {
 const PATH_BASE_R = 15.5;
 const PATH_WAVE_AMP = 2.8;
 const PATH_WIDTH = 2.4;
-const POND_CLEAR_R = 6.8;
+const POND_CLEAR_R = 12.6;   // the whole basin: scatter belongs on the bank outward
 const GAZEBO_CLEAR_R = 4.6;
+
+/**
+ * The path loop's shape, sampled once per angle and shared by everything
+ * that needs it -- the path mesh itself, `isGroundClear`'s exclusion band,
+ * and the flower-bed placer -- so it's defined exactly once. The base 4-lobe
+ * clover (matching the original sketch) is layered with two higher-frequency,
+ * phase-shifted sines so the loop reads as an irregular, hand-walked trail
+ * rather than a uniform clover -- all three terms are integer multiples of
+ * theta, so the curve still closes without a seam at theta = 0 / 2*PI.
+ */
+const PATH_POND_CLEARANCE = 13.8;   // keep the path out of the pond basin
+
+function pathRadiusAt(theta) {
+    const base = PATH_BASE_R
+        + Math.sin(theta * 4) * PATH_WAVE_AMP
+        + Math.sin(theta * 7 + 1.3) * (PATH_WAVE_AMP * 0.4)
+        + Math.sin(theta * 11 - 0.6) * (PATH_WAVE_AMP * 0.22);
+
+    // The loop's closest approach to the pond centre was 11.0m, well inside
+    // the 12.5m basin -- so the path ran straight through the water. The pond
+    // sits FURTHER from the origin than the path does, so pulling the radius
+    // in moves the path away from it. Solving the ray/circle intersection
+    // gives the largest radius along this bearing that still clears the
+    // basin; anywhere the path was already clear, the discriminant is
+    // negative and nothing changes.
+    const px = GARDEN_POINTS.POND.x, pz = GARDEN_POINTS.POND.z;
+    const proj = px * Math.cos(theta) + pz * Math.sin(theta);
+    // proj <= 0 means the pond lies BEHIND this bearing. The algebra still
+    // finds roots there -- for the ray extended backwards -- and taking them
+    // sent the radius to -43, flipping that stretch of path to the far side
+    // of the garden. Only bearings that actually point at the pond qualify.
+    if (proj <= 0) return base;
+    const disc = proj * proj - (px * px + pz * pz) + PATH_POND_CLEARANCE * PATH_POND_CLEARANCE;
+    if (disc <= 0) return base;
+    const nearRoot = proj - Math.sqrt(disc);
+    return nearRoot > 0 ? Math.min(base, nearRoot) : base;
+}
+
+// Ground relief. This is the single source of ground height: the ground mesh
+// itself, the path, grass and every scattered thing reads it, or raising and
+// lowering the ground just leaves everything else floating.
+//
+// The pond is a real BASIN carved into the lawn, ringed by a low bank. It used
+// to be a flat plane with a circular alpha cutout punched through it, with the
+// pond model dropped into the hole -- which produced exactly the two artefacts
+// this replaces: the cutout's soft edge read as a visible circular ring from
+// low angles, and the scan's own flat ground apron stood proud of the lawn as
+// an orphaned raised slab with hard edges. The apron is now deleted from the
+// asset outright (see scripts note in README) and the lawn dips to form the
+// water's bed, so there is no cutout to see and no apron to stick out.
+// Measured against the pond scan itself, not guessed. Its rock bed dips to
+// y = -1.62 and its water spans r = 2.0 to 11.0 from the pond centre, so the
+// lawn has to stay clearly BELOW -1.62 out to about r = 12 or the ground pokes
+// up through the rocks and the water. Beyond that it rises into a low bank, so
+// the pond reads as sitting in a dip in rising ground rather than as a disc
+// dropped onto a flat plane.
+// Depth is measured DOWN FROM THE BANK CREST, so raising the bank raises the
+// bed with it unless this grows too -- at bank 1.25 a depth of 2.20 lifted the
+// bed to -0.95 and it punched straight back up through the rocks.
+const POND_BED_DEPTH = 3.00;
+const POND_BED_R = 12.5;        // bed stays flat out to here
+const POND_RIM_W = 1.5;         // width of the rim transition at the bed's edge
+const POND_BANK_H = 1.25;       // the pond sits in a raised mound, not just a hole
+const POND_BANK_R = 20.0;       // bank fades back to flat lawn here
+
+function smoothstep01(t) {
+    const c = Math.min(1, Math.max(0, t));
+    return c * c * (3 - 2 * c);
+}
+
+/**
+ * Irregular outline for the pond, as a multiplier on its nominal radius.
+ *
+ * A perfectly circular dig is invisible at eye level and unmistakable from
+ * above -- it reads as a crater stamped into the lawn rather than as water
+ * that collected in a hollow. Three phase-shifted harmonics give a lopsided,
+ * organic edge instead. All are integer multiples of theta, so the outline
+ * closes on itself with no seam, and it is deterministic, so the basin, the
+ * bank and the water sheet all agree on exactly the same shape.
+ */
+function pondShapeAt(theta) {
+    return 1
+        + Math.sin(theta * 2 + 0.7) * 0.17
+        + Math.sin(theta * 3 - 1.9) * 0.10
+        + Math.sin(theta * 5 + 2.6) * 0.06;
+}
+
+export function groundHeightAt(x, z) {
+    const dx = x - GARDEN_POINTS.POND.x, dz = z - GARDEN_POINTS.POND.z;
+    const d = Math.hypot(dx, dz);
+    const shape = pondShapeAt(Math.atan2(dz, dx));
+    // The bank carries the full irregularity -- it is the outline you actually
+    // read from above. The BED only takes a quarter of it, because it has to
+    // stay wider than the scan's rock footprint (which reaches r=11) at every
+    // bearing; at full amplitude the bed pinched to 9.3m and the rocks punched
+    // straight back up through the lawn.
+    const bedR = POND_BED_R * (1 + (shape - 1) * 0.25);
+    const bankR = POND_BANK_R * shape;
+    if (d >= bankR) return 0;
+    const bank = POND_BANK_H * smoothstep01((bankR - d) / (bankR - bedR));
+    if (d >= bedR) return bank;
+    return bank - POND_BED_DEPTH * smoothstep01((bedR - d) / POND_RIM_W);
+}
 
 /**
  * Ground validity for anything scattered across the lawn -- grass, flower
@@ -37,7 +141,7 @@ export function isGroundClear(x, z, margin = 0) {
     if (Math.hypot(x - GARDEN_POINTS.POND.x, z - GARDEN_POINTS.POND.z) < POND_CLEAR_R + margin) return false;
     if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
     const theta = Math.atan2(z, x);
-    const pathR = PATH_BASE_R + Math.sin(theta * 4) * PATH_WAVE_AMP;
+    const pathR = pathRadiusAt(theta);
     if (Math.abs(Math.hypot(x, z) - pathR) < PATH_WIDTH * 0.5 + 0.3 + margin) return false;
     return true;
 }
@@ -75,8 +179,14 @@ export function loadGarden(loadingManager) {
         loadGLTF('models/gazebo.glb'),
         loadGLTF('models/pond.glb'),
         loadGLTF('models/maple.glb'),
-        loadGLTF('models/floor_leaves.glb')
-    ]).then(([gulmoharGltf, gazeboGltf, pondGltf, mapleGltf, leavesGltf]) => {
+        loadGLTF('models/floor_leaves.glb'),
+        loadGLTF('models/grass_cards.glb'),
+        loadGLTF('models/veg_clumps.glb'),
+        loadGLTF('models/dense_grass.glb'),
+        QUALITY.backgroundTrees > 0 ? loadGLTF('models/banyan.glb') : Promise.resolve(null),
+        QUALITY.backgroundTrees > 0 ? loadGLTF('models/mango.glb') : Promise.resolve(null)
+    ]).then(([gulmoharGltf, gazeboGltf, pondGltf, mapleGltf, leavesGltf,
+              grassCardsGltf, vegClumpsGltf, denseGrassGltf, banyanGltf, mangoGltf]) => {
         // 1. Gulmohar Centerpiece Tree (At 0,0,0)
         const gulmoharObj = setupGulmohar(gulmoharGltf);
         gardenGroup.add(gulmoharObj.model);
@@ -90,6 +200,7 @@ export function loadGarden(loadingManager) {
         // 3. Pond with Waterfalls (Top-Left corner)
         const pondObj = setupPond(pondGltf);
         gardenGroup.add(pondObj.model);
+        if (pondObj.waterMaterial) gardenGroup.add(createPondWaterDisc(pondObj.waterMaterial));
         interactives.push(pondObj.interactive);
         if (pondObj.update) updateables.push(pondObj.update);
 
@@ -106,14 +217,18 @@ export function loadGarden(loadingManager) {
         const pathway = createGardenPathway();
         gardenGroup.add(pathway);
 
-        // 7. Flower beds along the path's outer shoulder
-        gardenGroup.add(createFlowerBeds());
+        // 7. Background trees, outside the path loop -- hoverable and
+        // clickable like the four landmarks, so they push into `interactives`.
+        gardenGroup.add(setupBackgroundTrees(banyanGltf, mangoGltf, interactives));
 
         const windEnv = createWindEnvelope();
 
         return {
             group: gardenGroup,
             interactives,
+            grassCards: grassCardsGltf,
+            vegClumps: vegClumpsGltf,
+            denseGrass: denseGrassGltf,
             groundTexture: floorResult.groundTexture,
             groundNormal: floorResult.groundNormal,
             update: (time, delta) => {
@@ -129,13 +244,31 @@ export function loadGarden(loadingManager) {
 /**
  * Configure materials for realistic foliage with proper shadow maps and alpha cutoffs.
  */
+const WOODY_NAME = /trunk|bark|wood|stem|log|root|limb|timber|shu[_ -]?gan/i;
+
 function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
-    mat.side = THREE.DoubleSide;
+    // Only alpha-cutout leaf cards -- single planes legitimately seen from
+    // either face -- need DoubleSide. A trunk is a closed opaque solid, so
+    // shading its back faces is both wasted fill and physically wrong. This
+    // was applied unconditionally, which put the maple trunk (120,122 tris)
+    // and the gulmohar trunk (62,241) through twice-sided shading for nothing.
+    // The scene is fill-bound, not draw-call-bound, so this is real budget.
+    const isWoody = WOODY_NAME.test(mat.name || '') || WOODY_NAME.test(child.name || '');
+
+    // Canopy cards drop to FrontSide below the top tier: on a phone, halving
+    // the shaded fragments of 500k alpha-tested triangles matters more than
+    // the few leaves that thin out when viewed from behind.
+    mat.side = isWoody ? THREE.FrontSide : QUALITY.canopySide;
     mat.shadowSide = THREE.FrontSide;
     if (mat.roughness !== undefined) mat.roughness = Math.max(mat.roughness, 0.65);
 
     child.castShadow = true;
-    child.receiveShadow = true;
+    // Foliage RECEIVING shadow means PCF sampling across ~500k leaf fragments.
+    // It is the first thing worth cutting under pressure and the first worth
+    // buying back: without it leaves take no shadow from the branches above
+    // them and a dense canopy renders as uniformly bright. Trunks always
+    // receive -- there are few of them and the self-shadowing reads.
+    child.receiveShadow = isWoody || QUALITY.foliageReceiveShadow;
 
     const isFoliage = mat.alphaTest > 0 || mat.transparent ||
         (mat.name && /leaf|leaves|foliage|flower|petal|branch|twig|stalk|bud|00[1-4]|mat/i.test(mat.name)) ||
@@ -152,6 +285,33 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
             alphaTest: alphaCut,
             side: THREE.FrontSide
         });
+        // The photoreal leaf/flower photos read far more saturated and bright
+        // than the pastel-graded rest of the scene -- pull them toward their
+        // own luminance (desaturate) and dim slightly, so foliage still reads
+        // as real detail without shouting over everything pastel around it.
+        // One material is shared across many mesh chunks (a tree's leaves are
+        // rarely one mesh), and this runs once per chunk -- guard against
+        // wrapping the same material's onBeforeCompile more than once, or
+        // the injection duplicates itself into a GLSL redefinition error.
+        // ...but only on actual leaves and blossoms. The isFoliage test above
+        // ends in `|mat`, which matches almost every material name in these
+        // exports (shu_gan_Mat, Material_Mat, Delonix_trunk's included) -- fine
+        // for deciding alpha cutout, but grading bark with it bleached the
+        // trunks. Reuses the same woody test that decides sidedness above.
+        if (!isWoody && !mat.userData.__pastelFoliage) {
+            mat.userData.__pastelFoliage = true;
+            const prevCompile = mat.onBeforeCompile;
+            mat.onBeforeCompile = (shader, renderer) => {
+                if (prevCompile) prevCompile(shader, renderer);
+                shader.fragmentShader = shader.fragmentShader.replace(
+                    '#include <color_fragment>',
+                    `#include <color_fragment>
+                     float foliageLum = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+                     diffuseColor.rgb = mix(diffuseColor.rgb, vec3(foliageLum), 0.30) * 0.90;`
+                );
+            };
+            mat.needsUpdate = true;
+        }
     }
 }
 
@@ -223,7 +383,11 @@ function mergeStaticByMaterial(root, skip = new Set()) {
     const originals = [];
 
     root.traverse((child) => {
-        if (!child.isMesh || child.isInstancedMesh || skip.has(child)) return;
+        // Hidden meshes must not be merged. Merging builds a NEW mesh that is
+        // visible by default, so folding an invisible child into it silently
+        // resurrects it -- which is what put the pond's removed ripple glint
+        // cards back on screen as `merged_riples` after they had been hidden.
+        if (!child.isMesh || child.isInstancedMesh || skip.has(child) || !child.visible) return;
         if (!child.geometry || !child.material || Array.isArray(child.material)) return;
         const key = child.material.uuid + '|' + Object.keys(child.geometry.attributes).sort().join(',');
         if (!groups.has(key)) groups.set(key, { material: child.material, meshes: [] });
@@ -290,7 +454,7 @@ function setupGulmohar(gltf) {
             // false on all foliage and blind the wind gate's alpha-blend test.
             const wantsWind = isFoliageForWind(child, child.material);
             enhanceFoliageMaterial(child.material, child, 0.32);
-            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.022, speedMult: 0.85 });   // was 0.05/1.0 -- too much sway on the stalk mesh, 48% of the tree's geometry
+            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.048, speedMult: 0.85 });   // was 0.05/1.0 -- too much sway on the stalk mesh, 48% of the tree's geometry
         });
     } else {
         model = createFallbackTree(0xcc3720, 11.2);
@@ -330,7 +494,7 @@ function setupGulmohar(gltf) {
 // 2. Gazebo Setup (Bottom-Right)
 // ---------------------------------------------------------------------------
 function setupGazebo(gltf) {
-    const targetHeight = 4.8;
+    const targetHeight = 6.6;   // was 4.8 -- read undersized beside 12-17m trees
     const group = new THREE.Group();
     group.name = 'Gazebo';
 
@@ -398,6 +562,8 @@ function setupPond(gltf) {
     let waterMeshList = [];
     const skipMerge = new Set();   // meshes that keep their own material/shader
     let surfaceWaterMat = null;
+    let pondCardMat = null;      // shared alpha-cutout variant (vegetation planes)
+    let pondSolidMat = null;     // shared opaque variant (scanned rock)
     let waterTex = null;
 
     if (gltf && gltf.scene) {
@@ -410,8 +576,17 @@ function setupPond(gltf) {
         const scaleFactor = targetWidth / Math.max(size.x, 0.001);
 
         model.scale.setScalar(scaleFactor);
-        // Sink the pond basin so water level rests naturally below the garden ground (y = -0.38)
-        model.position.set(-center.x * scaleFactor, -0.38, -center.z * scaleFactor);
+        // Back to essentially its authored height. This asset is a scan whose
+        // flat ground plane is baked into the same merged mesh as the rocks,
+        // so there is no separate skirt to feather, and its outer rim is a
+        // hard-edged rectangle sitting at about y +0.2 (measured across the
+        // band r >= 12: median +0.21, max +3.06 for the rocks). Sinking the
+        // model to -1.25 did hide that rim, but it also drowned the shore
+        // planting and left the pond reading as a hole punched in a flat
+        // plane. The rim is now covered by raising the LAND instead --
+        // groundHeightAt() swells the lawn up to meet it -- which keeps the
+        // pond's own elevation intact.
+        model.position.set(-center.x * scaleFactor, -0.42, -center.z * scaleFactor);
 
         model.traverse((child) => {
             if (!child.isMesh || !child.material) return;
@@ -440,7 +615,15 @@ function setupPond(gltf) {
                     shader.fragmentShader = 'varying vec3 vPondLocalPos;\n' + shader.fragmentShader.replace(
                         '#include <dithering_fragment>',
                         `#include <dithering_fragment>
-                         float d = length(vPondLocalPos.xy);
+                         // .xy silently pulled in this mesh's own vertical
+                         // extent (the pond terrain rises ~5m at the back) --
+                         // a horizontal-only radius has to drop the height
+                         // axis (.xz), or a tall rim fades out early purely
+                         // for being tall, which is what read as an elevated
+                         // area missing/floating out back. Band widened
+                         // ~4x too, for a much bigger green transition
+                         // around that same tall rim rather than a thin ring.
+                         float d = length(vPondLocalPos.xz);
                          float fade = 1.0 - smoothstep(5.4, 7.5, d);
                          gl_FragColor.a *= fade;
                          if (gl_FragColor.a <= 0.02) discard;`
@@ -454,39 +637,136 @@ function setupPond(gltf) {
                     color: 0x167280,
                     emissive: 0x09363e,
                     emissiveIntensity: 0.40,
-                    roughness: 0.05,
-                    metalness: 0.18,
-                    envMapIntensity: 2.6,   // scene env is only 0.13; water needs reflection
+                    // roughness 0.05 + envMapIntensity 2.6 made the surface a
+                    // near-perfect mirror of scene.environment -- which is a
+                    // PMREM of Three's RoomEnvironment, i.e. a room containing
+                    // rectangular emissive light panels. The water dutifully
+                    // reflected one back as a hard white rectangle sitting on
+                    // the pond: the "ghost reflection". It was never in the
+                    // source asset. Roughening the surface scatters that
+                    // reflection into a broad sheen instead of a mirrored
+                    // shape, which is also what real pond water does.
+                    roughness: 0.34,
+                    metalness: 0.10,
+                    envMapIntensity: 0.8,
                     transparent: true,
                     opacity: 0.90,
                     depthWrite: true,
                     side: THREE.DoubleSide
                 });
+                // The basin sits below the rim and reads as fully self-shadowed
+                // most of the day, and at this scene's low environmentIntensity
+                // (0.13) a near-mirror surface (roughness 0.05) has nothing left
+                // to reflect -- it rendered as a pure black hole rather than
+                // water. Same minimum-brightness floor already used for grass,
+                // so it always reads as dark teal water instead of void.
+                newWaterMat.onBeforeCompile = (shader) => {
+                    shader.uniforms.uPondC = { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) };
+                    shader.vertexShader = 'varying vec3 vWaterW;\n' + shader.vertexShader.replace(
+                        '#include <worldpos_vertex>',
+                        '#include <worldpos_vertex>\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+                    );
+                    shader.fragmentShader = 'varying vec3 vWaterW;\nuniform vec2 uPondC;\n' + shader.fragmentShader.replace(
+                        '#include <opaque_fragment>',
+                        `outgoingLight = max( outgoingLight, diffuseColor.rgb * 0.22 );
+                         // The main water sheet is a RECTANGLE -- four verts,
+                         // 18.6 x 20.2 -- so with the lawn's old circular
+                         // cutout gone its straight edge ran visibly across
+                         // the bank. Clip it to the basin instead.
+                         #include <opaque_fragment>`
+                    );
+                };
                 child.material = newWaterMat;
+                if (!surfaceWaterMat) surfaceWaterMat = newWaterMat;
                 child.receiveShadow = true;
                 waterMeshList.push(child);
+                // The scan's main sheet is a single RECTANGLE. Its corners sit
+                // ~10m from the pond centre but its edge midpoints come in to
+                // ~7.3m, so it ends in hard straight lines well inside the
+                // basin -- and a radial clip can't help, because the geometry
+                // is simply not there to clip. Flat 4-vert sheets are hidden
+                // and replaced by a generated disc (createPondWaterDisc) that
+                // fills the basin properly. The 3D cascade meshes stay.
+                // Identified by vertex count, NOT by which local axis is flat:
+                // this node carries a -90 degree X rotation, so the sheet is
+                // flat in local Z, and a local-Y test silently never matched.
+                // Among the water meshes only the main sheet is a bare quad
+                // (4 verts); the cascades are 28 and 8.
+                if (child.geometry.attributes.position.count <= 4) child.visible = false;
             } else if (matName.includes('riple') || childName.includes('riple')) {
-                const newRippleMat = new THREE.MeshStandardMaterial({
-                    map: mat.map || null,
-                    color: 0x88e2ec,
-                    emissive: 0x3d8c97,
-                    emissiveIntensity: 0.50,
-                    roughness: 0.08,
-                    transparent: true,
-                    opacity: 0.85,
-                    depthWrite: false,
-                    side: THREE.DoubleSide
-                });
-                child.material = newRippleMat;
-                waterMeshList.push(child);
+                // Removed outright. These are baked light-glint cards from the
+                // original scan -- flat quads whose greyscale+alpha texture is
+                // meant to read as a specular sheen on water. In this scene
+                // they render as a hard pale rectangle floating on the pond:
+                // a "ghost reflection" with visible straight edges that no
+                // amount of blending or clipping hides, because the artefact
+                // IS the quad. The pond's own water material already carries
+                // its highlights, so nothing is lost by dropping them.
+                child.visible = false;
             } else {
                 child.castShadow = !childName.includes('plane');
                 child.receiveShadow = true;
-                if (mat.map && (mat.transparent || matName.includes('leaf') || matName.includes('plant'))) {
-                    mat.alphaTest = 0.35;
-                    mat.transparent = false;
-                    mat.depthWrite = true;
-                    mat.side = THREE.DoubleSide;
+                // ONE material covers two incompatible kinds of geometry here,
+                // which is why a single setting could never be right:
+                //   * Icosphere.* are solid scanned ROCKS. Their 2048 atlas is
+                //     RGBA with ~16.5% near-zero alpha, but that is chart
+                //     PADDING, not a cutout mask -- alpha-testing them
+                //     discarded every texel sampling near a chart boundary and
+                //     shattered the rocks into floating shards.
+                //   * Plane.* are flat VEGETATION cards whose alpha genuinely
+                //     is their silhouette -- drawn opaque they become solid
+                //     black rectangles.
+                // So split into exactly two shared variants, keyed on geometry
+                // rather than on the material's own (misleading) alphaMode.
+                // Two clones, not one per mesh: hundreds of unique materials
+                // would defeat mergeStaticByMaterial and the draw-call budget.
+                // Baked light-reflection cards: flat quads lying HORIZONTAL on
+                // the water, whose texture is a pale specular smear. They read
+                // as a ghost white rectangle floating on the pond. Vegetation
+                // cards are flat too, but they STAND UP, so world-space
+                // orientation separates them cleanly where names cannot --
+                // every flat quad in this asset is called Plane.something.
+                child.updateWorldMatrix(true, false);
+                child.geometry.computeBoundingBox();
+                const gb = child.geometry.boundingBox;
+                let wyMin = Infinity, wyMax = -Infinity, wxz = 0;
+                const corner = new THREE.Vector3();
+                for (const cx of [gb.min.x, gb.max.x]) {
+                    for (const cy of [gb.min.y, gb.max.y]) {
+                        for (const cz of [gb.min.z, gb.max.z]) {
+                            corner.set(cx, cy, cz).applyMatrix4(child.matrixWorld);
+                            wyMin = Math.min(wyMin, corner.y);
+                            wyMax = Math.max(wyMax, corner.y);
+                            wxz = Math.max(wxz, Math.abs(corner.x), Math.abs(corner.z));
+                        }
+                    }
+                }
+                const vertCount = child.geometry.attributes.position.count;
+                if (vertCount <= 8 && (wyMax - wyMin) < 0.05) {
+                    child.visible = false;   // horizontal glint card
+                    return;
+                }
+
+                const isCard = childName.startsWith('plane');
+                if (isCard) {
+                    if (!pondCardMat) {
+                        pondCardMat = mat.clone();
+                        pondCardMat.alphaTest = 0.35;
+                        pondCardMat.transparent = false;
+                        pondCardMat.depthWrite = true;
+                        pondCardMat.side = THREE.DoubleSide;
+                        pondCardMat.shadowSide = THREE.FrontSide;
+                    }
+                    child.material = pondCardMat;
+                } else {
+                    if (!pondSolidMat) {
+                        pondSolidMat = mat.clone();
+                        pondSolidMat.alphaTest = 0;
+                        pondSolidMat.transparent = false;
+                        pondSolidMat.depthWrite = true;
+                        pondSolidMat.side = THREE.FrontSide;
+                    }
+                    child.material = pondSolidMat;
                 }
             }
         });
@@ -560,8 +840,161 @@ function setupPond(gltf) {
             targetGroup: group,
             data: interactiveData
         },
+        // Shared with the generated water disc, so the disc picks up the same
+        // colour, ripple scroll and brightness floor as the cascade meshes.
+        waterMaterial: surfaceWaterMat,
         update
     };
+}
+
+/**
+ * The pond's open water: a real disc sized to the carved basin, replacing the
+ * scan's rectangular sheet. Being a circle, it has no straight edge to betray
+ * it from any angle, and its radius is chosen to sit just inside the basin rim
+ * so the lawn always meets water rather than water meeting lawn.
+ */
+function createPondWaterDisc(material) {
+    // Built as a fan on the SAME irregular outline as the dig, rather than a
+    // CircleGeometry, so the waterline follows the bank instead of cutting a
+    // circle across it. Radius is pulled in from the bed's edge so the rocks
+    // always overlap the water's rim and it never ends in open air.
+    const SEG = 96, R = POND_BED_R * 0.58;
+    const shapeMix = (a) => 1 + (pondShapeAt(a) - 1) * 0.55;   // between bed and bank
+    const pos = [0, 0, 0];
+    const idx = [];
+    for (let i = 0; i < SEG; i++) {
+        const a = (i / SEG) * Math.PI * 2;
+        const r = R * shapeMix(a);
+        pos.push(Math.cos(a) * r, 0, Math.sin(a) * r);
+        idx.push(0, 1 + i, 1 + ((i + 1) % SEG));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geo, material);
+    mesh.name = 'PondWaterDisc';
+    mesh.position.set(GARDEN_POINTS.POND.x, -0.45, GARDEN_POINTS.POND.z);
+    mesh.receiveShadow = true;
+    mesh.renderOrder = 1;
+    return mesh;
+}
+
+// ---------------------------------------------------------------------------
+// Background trees -- banyan and mango, ringed OUTSIDE the path loop
+// ---------------------------------------------------------------------------
+// Deliberately spread around the ring rather than clustered: at a 50 degree
+// FOV the camera sees roughly a quarter of the ring at once, so frustum
+// culling keeps most of them off the GPU at any moment. Angles dodge the four
+// landmarks (pond ~220 deg, gazebo ~39 deg, maple ~318 deg) so nothing
+// overlaps or hides them, and every radius sits beyond the path's outer
+// wobble (~19.5) and inside the ground's edge fade (starts at 38).
+//
+// Cost, audited and then reduced with the project's documented gltf-transform
+// pass: banyan 12.6MB/111k tris -> 6.8MB/52.6k, mango 15.7MB/130k tris and a
+// brutal 49.3MB of texture VRAM (two 2048 maps) -> 5.6MB/90.8k and 17.3MB.
+// One of each. Heights set the garden's pecking order deliberately: banyan is
+// the tallest thing here, mango overtops the maple (13.8), and the gulmohar
+// (11.2) stays the centrepiece by position rather than by size.
+const BACKGROUND_TREES = [
+    {
+        kind: 'banyan', deg: 152, r: 27.0, height: 17.5, rotY: 0.9,
+        id: 'banyan', title: 'Chinese Banyan', meta: 'Ficus microcarpa · Click to visit'
+    },
+    {
+        kind: 'mango', deg: 252, r: 25.5, height: 15.5, rotY: 2.4,
+        id: 'mango', title: 'Mango Tree', meta: 'Mangifera indica · Click to visit'
+    }
+];
+
+function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
+    const group = new THREE.Group();
+    group.name = 'BackgroundTrees';
+    const budget = QUALITY.backgroundTrees;
+    if (budget <= 0) return group;
+
+    const sources = { banyan: banyanGltf, mango: mangoGltf };
+    // One prepared prototype per species, cloned per placement: clones share
+    // the same geometry and texture buffers on the GPU, so six trees cost six
+    // draw sets but only two trees' worth of memory.
+    const prepared = {};
+    Object.entries(sources).forEach(([kind, gltf]) => {
+        if (!gltf || !gltf.scene) return;
+        const proto = gltf.scene;
+        proto.traverse((child) => {
+            if (!child.isMesh || !child.material) return;
+            const wantsWind = isFoliageForWind(child, child.material);
+            enhanceFoliageMaterial(child.material, child, 0.35);
+            // Gentler than the centrepiece gulmohar: these read at distance,
+            // where a large sway is what makes background foliage look like
+            // it is boiling rather than breathing.
+            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.032, speedMult: 0.7 });
+        });
+        const box = new THREE.Box3().setFromObject(proto);
+        prepared[kind] = { proto, box };
+    });
+
+    BACKGROUND_TREES.slice(0, budget).forEach((spec, i) => {
+        const entry = prepared[spec.kind];
+        if (!entry) return;
+        const size = entry.box.getSize(new THREE.Vector3());
+        const centre = entry.box.getCenter(new THREE.Vector3());
+        const scaleFactor = spec.height / Math.max(size.y, 0.001);
+
+        const model = entry.proto.clone(true);
+        model.scale.setScalar(scaleFactor);
+        // Sunk slightly so the root flare meets the lawn rather than perching
+        // on it, matching how the maple is seated.
+        // Just enough to close the contact seam, not enough to bury the
+        // root flare -- only the maple, whose whole exposed root ball sits
+        // proud of the soil, wants a deep sink.
+        model.position.set(-centre.x * scaleFactor, -entry.box.min.y * scaleFactor - 0.08, -centre.z * scaleFactor);
+
+        const holder = new THREE.Group();
+        holder.name = `${spec.kind}_${i}`;
+        const theta = THREE.MathUtils.degToRad(spec.deg);
+        const wx = Math.cos(theta) * spec.r, wz = Math.sin(theta) * spec.r;
+        holder.position.set(wx, 0, wz);
+        holder.rotation.y = spec.rotY;
+        holder.add(model);
+        holder.add(createContactShadow(spec.height * 0.62));
+        group.add(holder);
+
+        // Hoverable and clickable, same machinery as the four original
+        // landmarks: an invisible cylinder as the ray target, plus a camera
+        // framing. Sized to the canopy rather than the trunk so the whole
+        // tree is a target, and counter-rotated out of the holder's own
+        // rotation so the framing stays in world space.
+        const hitbox = new THREE.Mesh(
+            new THREE.CylinderGeometry(spec.height * 0.42, spec.height * 0.42, spec.height, 10, 1, true),
+            new THREE.MeshBasicMaterial({ visible: false })
+        );
+        hitbox.position.set(0, spec.height * 0.5, 0);
+        holder.add(hitbox);
+
+        // Stand off toward the garden centre so the camera looks outward at
+        // the tree with the rest of the garden behind it, never through it.
+        const inward = new THREE.Vector3(-wx, 0, -wz).normalize();
+        const dist = spec.height * 1.15;
+        interactives.push({
+            object: hitbox,
+            targetGroup: holder,
+            data: {
+                id: spec.id,
+                title: spec.title,
+                meta: spec.meta,
+                cameraTarget: {
+                    pos: new THREE.Vector3(wx, 0, wz)
+                        .addScaledVector(inward, dist)
+                        .setY(spec.height * 0.52),
+                    lookAt: new THREE.Vector3(wx, spec.height * 0.42, wz)
+                }
+            }
+        });
+    });
+
+    return group;
 }
 
 // ---------------------------------------------------------------------------
@@ -583,9 +1016,11 @@ function setupMaple(gltf) {
 
         // Sunk enough to bury the root flare, not the whole contact seam -- a
         // contact-shadow decal now covers the rest (createContactShadow, below),
-        // so this no longer has to do all the work on its own.
+        // so this no longer has to do all the work on its own. -0.55 (down from
+        // -1.25) left the whole gnarled root tangle sitting exposed on top of
+        // the dirt rather than growing out of it; -0.9 is the middle ground.
         model.scale.setScalar(scaleFactor);
-        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 0.55, -center.z * scaleFactor);
+        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 1.35, -center.z * scaleFactor);
 
         model.traverse((child) => {
             if (!child.isMesh || !child.material) return;
@@ -602,7 +1037,7 @@ function setupMaple(gltf) {
             // its own bounding box already spans nearly the whole tree --
             // the same swayFraction here would read as the canopy shredding
             // rather than swaying.
-            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.016, speedMult: 0.7 });   // was 0.032/0.85 -- same over-sway complaint
+            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.040, speedMult: 0.7 });   // was 0.032/0.85 -- same over-sway complaint
         });
     } else {
         model = createFallbackTree(0xd85b24, 13.8);
@@ -673,7 +1108,14 @@ function setupFloorEverywhere(leavesGltf) {
                     // Natural fallen leaf size (~0.35 meters)
                     const scale = 0.35 / maxDim;
                     geom.scale(scale, scale, scale);
-                    mat.side = THREE.DoubleSide;
+                    // FrontSide, not DoubleSide: these lie flat on the ground
+                    // and tilt only a few degrees, and OrbitControls'
+                    // maxPolarAngle keeps the camera above the horizon, so
+                    // their undersides are never visible. This is the single
+                    // biggest fill saving in the scene -- ~450k alpha-tested
+                    // triangles were being shaded twice over.
+                    mat.side = THREE.FrontSide;
+                    mat.shadowSide = THREE.FrontSide;
                     mat.alphaTest = 0.35;
                     mat.transparent = false;
                     mat.depthWrite = true;
@@ -706,12 +1148,19 @@ function setupFloorEverywhere(leavesGltf) {
 
     // 1. Scatter individual realistic leaves across the entire garden floor
     if (leafMeshes.length > 0) {
-        const countPerMesh = 45; // 8 leaf types * 45 = 360 scattered botanical leaves on ground
+        // The most expensive object in the scene, by a wide margin: each leaf
+        // is ~1,250 triangles for something 0.35m across lying flat, and they
+        // blanket the whole ground. 8 leaf types * 45 = 360 leaves = ~450k
+        // alpha-tested triangles at the top tier. Tiered accordingly.
+        const countPerMesh = QUALITY.floorLeafCount;
         const dummy = new THREE.Object3D();
 
         leafMeshes.forEach(({ geometry, material }) => {
             const instanced = new THREE.InstancedMesh(geometry, material, countPerMesh);
             instanced.receiveShadow = true;
+            // Base count for the adaptive quality scaler: it lowers
+            // InstancedMesh.count (a draw range, free) when frames slow.
+            instanced.userData.baseCount = instanced.count;
             instanced.castShadow = false;
 
             for (let i = 0; i < countPerMesh; i++) {
@@ -747,7 +1196,7 @@ function setupFloorEverywhere(leavesGltf) {
                     continue;
                 }
 
-                dummy.position.set(x, 0.022 + (i % 8) * 0.002, z);
+                dummy.position.set(x, groundHeightAt(x, z) + 0.022 + (i % 8) * 0.002, z);
                 dummy.rotation.set(
                     (Math.random() - 0.5) * 0.16,
                     Math.random() * Math.PI * 2,
@@ -770,12 +1219,15 @@ function setupFloorEverywhere(leavesGltf) {
         // the first branch is always true, so every plant landed in the pond ring
         // and the maple/centerpiece branches were dead code. Rolling a fraction
         // instead of comparing the loop index is what actually reaches all three.
-        const countPerPlant = 60;
+        const countPerPlant = QUALITY.microPlantCount;
         const dummy = new THREE.Object3D();
 
         microPlants.forEach(({ geometry, material }) => {
             const instanced = new THREE.InstancedMesh(geometry, material, countPerPlant);
             instanced.receiveShadow = true;
+            // Base count for the adaptive quality scaler: it lowers
+            // InstancedMesh.count (a draw range, free) when frames slow.
+            instanced.userData.baseCount = instanced.count;
             instanced.castShadow = false;
 
             for (let i = 0; i < countPerPlant; i++) {
@@ -801,7 +1253,7 @@ function setupFloorEverywhere(leavesGltf) {
                     z = Math.sin(theta) * r;
                 }
 
-                dummy.position.set(x, 0.025, z);
+                dummy.position.set(x, groundHeightAt(x, z) + 0.025, z);
                 dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
                 const s = 0.8 + Math.random() * 0.6;
                 dummy.scale.set(s, s, s);
@@ -834,10 +1286,6 @@ const BED_BLOSSOM_COLORS = [
     new THREE.Color(0xd9502f), new THREE.Color(0xb03d22),   // gulmohar red
     new THREE.Color(0xc98a2e), new THREE.Color(0xe3b65c)    // maple gold
 ];
-
-function pathRadiusAt(theta) {
-    return PATH_BASE_R + Math.sin(theta * 4) * PATH_WAVE_AMP;
-}
 
 /**
  * Wires a per-instance colour into an InstancedMesh's material through a
@@ -909,7 +1357,7 @@ function createFlowerBeds() {
             const px = clear ? x : 0, pz = clear ? z : 0;
             const s = clear ? (0.7 + Math.random() * 0.7) : 0;
 
-            dummy.position.set(px, 0.05 + Math.random() * 0.05, pz);
+            dummy.position.set(px, groundHeightAt(px, pz) + 0.05 + Math.random() * 0.05, pz);
             dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
             dummy.scale.set(s, s, s);
             dummy.updateMatrix();
@@ -938,14 +1386,15 @@ function createGardenPathway() {
     group.name = 'GardenPathway';
 
     const curvePoints = [];
-    const segments = 120;
-    const baseR = 15.5;
+    const segments = 160;
 
     for (let i = 0; i <= segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
-        // Symmetric 4-fold clover lobes matching the sketch, perfectly centered at origin
-        const r = baseR + Math.sin(theta * 4) * 2.8;
-        curvePoints.push(new THREE.Vector3(Math.cos(theta) * r, 0.018, Math.sin(theta) * r));
+        const r = pathRadiusAt(theta);
+        const px = Math.cos(theta) * r, pz = Math.sin(theta) * r;
+        // Rides the ground height field, or the pond berm swallows the
+        // stretch of path that passes closest to the water.
+        curvePoints.push(new THREE.Vector3(px, groundHeightAt(px, pz) + 0.018, pz));
     }
 
     const curve = new THREE.CatmullRomCurve3(curvePoints, true);
@@ -966,14 +1415,20 @@ function createGardenPathway() {
         const pLeft = point.clone().addScaledVector(normal, -pathWidth * 0.5);
         const pRight = point.clone().addScaledVector(normal, pathWidth * 0.5);
 
-        pLeft.y = 0.025;
-        pRight.y = 0.025;
+        // The curve already carries the ground height; flattening both rails
+        // to a constant y here is what left the path hovering over any relief
+        // instead of lying on it.
+        pLeft.y = point.y + 0.007;
+        pRight.y = point.y + 0.007;
 
         vertices.push(pLeft.x, pLeft.y, pLeft.z);
         vertices.push(pRight.x, pRight.y, pRight.z);
 
-        uvs.push(0, t * 18);
-        uvs.push(1, t * 18);
+        // Integer V repeat, so the tiling meets itself exactly where the loop
+        // closes at t=0/1 instead of leaving a visible seam there. 26 tiles
+        // over the loop keeps the stones near their authored aspect.
+        uvs.push(0, t * 26);
+        uvs.push(1, t * 26);
 
         if (i < pathSegments) {
             const i1 = i * 2;
@@ -991,44 +1446,33 @@ function createGardenPathway() {
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#383531';
-    ctx.fillRect(0, 0, 512, 512);
-
-    for (let y = 0; y < 512; y += 48) {
-        for (let x = 0; x < 512; x += 48) {
-            const shiftX = (y % 96 === 0) ? 24 : 0;
-            const px = x + shiftX;
-            ctx.fillStyle = (Math.random() > 0.5) ? '#423e39' : '#302d29';
-            ctx.beginPath();
-            ctx.roundRect(px + 4, y + 4, 40, 40, 6);
-            ctx.fill();
-            ctx.strokeStyle = '#1e1c1a';
-            ctx.lineWidth = 2.5;
-            ctx.stroke();
-        }
-    }
-    for (let i = 0; i < 4000; i++) {
-        ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.18})`;
-        ctx.fillRect(Math.random() * 512, Math.random() * 512, 2, 2);
-    }
-
-    const pathTex = new THREE.CanvasTexture(canvas);
-    pathTex.wrapS = THREE.RepeatWrapping;
-    pathTex.wrapT = THREE.RepeatWrapping;
-    pathTex.repeat.set(1, 14);
-    // The path is almost always seen at a grazing angle -- the worst case for
-    // isotropic filtering, and the cheapest place anisotropy pays off.
-    pathTex.anisotropy = 8;
+    // Real stone-path photography, replacing a hand-drawn canvas of rounded
+    // rectangles. Taken from stone_path_plane's diffuse and normal maps --
+    // its geometry is just a flat 32-triangle plane, so there was nothing
+    // worth keeping there; the maps are what carry the look, and the ribbon
+    // below already follows the curve and the terrain. The source PNGs are
+    // 7.8MB and 4.6MB; resized to 1024 JPEG they are 447KB and 367KB. The
+    // specularGlossiness map is dropped -- Three removed that workflow, and
+    // roughness/metalness covers it.
+    const texLoader = new THREE.TextureLoader();
+    const pathTex = texLoader.load(getAssetUrl('textures/path_diffuse.jpg'));
+    const pathNormal = texLoader.load(getAssetUrl('textures/path_normal.jpg'));
+    pathTex.colorSpace = THREE.SRGBColorSpace;
+    [pathTex, pathNormal].forEach((t) => {
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.RepeatWrapping;
+        // The path is almost always seen at a grazing angle -- the worst case
+        // for isotropic filtering, and the cheapest place anisotropy pays off.
+        t.anisotropy = 8;
+        t.repeat.set(1, 1);
+    });
 
     const pathMat = new THREE.MeshStandardMaterial({
         map: pathTex,
-        color: 0x48443f,
-        roughness: 0.95,
-        metalness: 0.02,
+        normalMap: pathNormal,
+        normalScale: new THREE.Vector2(0.7, 0.7),
+        roughness: 0.92,
+        metalness: 0.03,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1
@@ -1038,29 +1482,11 @@ function createGardenPathway() {
     pathMesh.receiveShadow = true;
     group.add(pathMesh);
 
-    const curbMat = new THREE.MeshStandardMaterial({
-        color: 0x272422,
-        roughness: 0.95,
-        metalness: 0.02
-    });
-
-    [-1, 1].forEach((side) => {
-        const curbPoints = [];
-        for (let i = 0; i <= 160; i++) {
-            const t = i / 160;
-            const pt = curve.getPointAt(t);
-            const tan = curve.getTangentAt(t).normalize();
-            const norm = new THREE.Vector3().crossVectors(tan, up).normalize();
-            const curbPt = pt.clone().addScaledVector(norm, side * pathWidth * 0.52);
-            curbPt.y = 0.04;
-            curbPoints.push(curbPt);
-        }
-        const curbCurve = new THREE.CatmullRomCurve3(curbPoints, true);
-        const curbGeo = new THREE.TubeGeometry(curbCurve, 160, 0.06, 6, true);
-        const curbMesh = new THREE.Mesh(curbGeo, curbMat);
-        curbMesh.receiveShadow = true;
-        group.add(curbMesh);
-    });
+    // No curb rails. There were two dark tube rails running the length of
+    // both edges, which read as a hard drawn border rather than a path worn
+    // into grass. The stone texture's own alpha-free edge, sitting slightly
+    // proud via polygonOffset with grass scattered right up to it, is what
+    // makes it read as seamless.
 
     return group;
 }
