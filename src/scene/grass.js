@@ -63,7 +63,7 @@ function mulberry32(seed) {
  * the trees, so one gust crosses the whole garden together instead of the
  * grass and the canopy drifting out of phase.
  */
-function injectGrassShader(material, cardHeight) {
+function injectGrassShader(material, localH) {
     material.onBeforeCompile = (shader) => {
         shader.uniforms.uWindTime = windUniforms.uWindTime;
         shader.uniforms.uWindStrength = windUniforms.uWindStrength;
@@ -84,15 +84,13 @@ vGrassColor = aGrassColor;
 #else
     vec4 wPos = modelMatrix * vec4(transformed, 1.0);
 #endif
-    float heightRatio = clamp(transformed.y / ${Math.max(cardHeight, 0.001).toFixed(4)}, 0.0, 1.0);
+    float heightRatio = clamp(transformed.y / ${Math.max(localH, 0.001).toFixed(4)}, 0.0, 1.0);
     float root = heightRatio * heightRatio;
     float phase = dot(wPos.xz, vec2(0.7, 0.7)) * 0.12 - uWindTime * 1.7;
     float sway = sin(phase) * 0.7 + sin(phase * 1.8 + wPos.x * 0.9) * 0.3;
     // 0.72, against the canopy's much smaller swayFraction: grass is light and
-    // should visibly answer a gust that a heavy branch barely registers. At the
-    // envelope's peak strength (0.15) this is ~3cm of tip travel on a 30cm
-    // tuft -- gentle, a breath rather than a gale.
-    float amp = uWindStrength * ${(cardHeight * 0.72).toFixed(4)} * root;
+    // should visibly answer a gust that a heavy branch barely registers.
+    float amp = uWindStrength * ${(localH * 0.72).toFixed(4)} * root;
     transformed.x += sway * amp;
     transformed.z += sway * amp * 0.6;
 }
@@ -153,13 +151,22 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
     cards.forEach((card) => {
         const geometry = card.geometry.clone();
         geometry.computeBoundingBox();
-        const localH = Math.max(geometry.boundingBox.max.y - geometry.boundingBox.min.y, 1e-4);
+        const bbox = geometry.boundingBox;
+        const cx = (bbox.min.x + bbox.max.x) * 0.5;
+        const cz = (bbox.min.z + bbox.max.z) * 0.5;
+        const minY = bbox.min.y;
+        // Center card horizontally so rotations don't swing it eccentrically,
+        // and align base to y=0 so bottom is planted in ground instead of 50% buried.
+        geometry.translate(-cx, -minY, -cz);
+        geometry.computeBoundingBox();
+
+        const localH = Math.max(geometry.boundingBox.max.y, 1e-4);
         const cardScale = targetHeight / localH;
-        const cardHeight = targetHeight;
 
         const material = card.material.clone();
         material.side = THREE.DoubleSide;      // crossed quads, read from every angle
-        material.alphaTest = Math.max(material.alphaTest || 0, 0.4);
+        // Respect authored alphaTest from glTF assets (veg_clumps is 0.11, dense_grass is 0.05).
+        material.alphaTest = material.alphaTest > 0 ? material.alphaTest : 0.2;
         material.transparent = false;          // cutout, not blended -- keeps depth sane
         material.depthWrite = true;
 
@@ -208,7 +215,7 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
         geometry.boundingSphere.radius = outerR + 2;
         mesh.frustumCulled = true;
 
-        injectGrassShader(material, cardHeight);
+        injectGrassShader(material, localH);
         group.add(mesh);
     });
 

@@ -25,7 +25,7 @@ export const GARDEN_POINTS = {
 const PATH_BASE_R = 15.5;
 const PATH_WAVE_AMP = 2.8;
 const PATH_WIDTH = 2.4;
-const POND_CLEAR_R = 12.6;   // the whole basin: scatter belongs on the bank outward
+const POND_CLEAR_R = 10.5;   // scatter grass and plants up to the pond perimeter
 const GAZEBO_CLEAR_R = 4.6;
 
 /**
@@ -45,19 +45,8 @@ function pathRadiusAt(theta) {
         + Math.sin(theta * 7 + 1.3) * (PATH_WAVE_AMP * 0.4)
         + Math.sin(theta * 11 - 0.6) * (PATH_WAVE_AMP * 0.22);
 
-    // The loop's closest approach to the pond centre was 11.0m, well inside
-    // the 12.5m basin -- so the path ran straight through the water. The pond
-    // sits FURTHER from the origin than the path does, so pulling the radius
-    // in moves the path away from it. Solving the ray/circle intersection
-    // gives the largest radius along this bearing that still clears the
-    // basin; anywhere the path was already clear, the discriminant is
-    // negative and nothing changes.
     const px = GARDEN_POINTS.POND.x, pz = GARDEN_POINTS.POND.z;
     const proj = px * Math.cos(theta) + pz * Math.sin(theta);
-    // proj <= 0 means the pond lies BEHIND this bearing. The algebra still
-    // finds roots there -- for the ray extended backwards -- and taking them
-    // sent the radius to -43, flipping that stretch of path to the far side
-    // of the garden. Only bearings that actually point at the pond qualify.
     if (proj <= 0) return base;
     const disc = proj * proj - (px * px + pz * pz) + PATH_POND_CLEARANCE * PATH_POND_CLEARANCE;
     if (disc <= 0) return base;
@@ -65,32 +54,14 @@ function pathRadiusAt(theta) {
     return nearRoot > 0 ? Math.min(base, nearRoot) : base;
 }
 
-// Ground relief. This is the single source of ground height: the ground mesh
-// itself, the path, grass and every scattered thing reads it, or raising and
-// lowering the ground just leaves everything else floating.
-//
-// The pond is a real BASIN carved into the lawn, ringed by a low bank. It used
-// to be a flat plane with a circular alpha cutout punched through it, with the
-// pond model dropped into the hole -- which produced exactly the two artefacts
-// this replaces: the cutout's soft edge read as a visible circular ring from
-// low angles, and the scan's own flat ground apron stood proud of the lawn as
-// an orphaned raised slab with hard edges. The apron is now deleted from the
-// asset outright (see scripts note in README) and the lawn dips to form the
-// water's bed, so there is no cutout to see and no apron to stick out.
-// Measured against the pond scan itself, not guessed. Its rock bed dips to
-// y = -1.62 and its water spans r = 2.0 to 11.0 from the pond centre, so the
-// lawn has to stay clearly BELOW -1.62 out to about r = 12 or the ground pokes
-// up through the rocks and the water. Beyond that it rises into a low bank, so
-// the pond reads as sitting in a dip in rising ground rather than as a disc
-// dropped onto a flat plane.
-// Depth is measured DOWN FROM THE BANK CREST, so raising the bank raises the
-// bed with it unless this grows too -- at bank 1.25 a depth of 2.20 lifted the
-// bed to -0.95 and it punched straight back up through the rocks.
-const POND_BED_DEPTH = 3.00;
-const POND_BED_R = 12.5;        // bed stays flat out to here
-const POND_RIM_W = 1.5;         // width of the rim transition at the bed's edge
-const POND_BANK_H = 1.25;       // the pond sits in a raised mound, not just a hole
-const POND_BANK_R = 20.0;       // bank fades back to flat lawn here
+// Measured against the pond scan itself. Its water surface sits at y = -0.45m.
+// A gentle 48cm hollow brings the lawn seamlessly down to meet the rock perimeter
+// without artificial 3-meter crater walls or raised volcanic berms.
+const POND_BED_DEPTH = 0.48;    // bed gently settles 48cm below ground
+const POND_BED_R = 6.2;         // bed stays flat out to here
+const POND_RIM_W = 3.5;         // smooth 3.5m bank transition
+const POND_BANK_H = 0.0;        // level lawn, no artificial crater wall
+const POND_BANK_R = 10.5;       // bank smoothly blends into flat lawn here
 
 function smoothstep01(t) {
     const c = Math.min(1, Math.max(0, t));
@@ -114,21 +85,34 @@ function pondShapeAt(theta) {
         + Math.sin(theta * 5 + 2.6) * 0.06;
 }
 
+const POND_ROT_Y = 2.35;
+const _pondCos = Math.cos(POND_ROT_Y);
+const _pondSin = Math.sin(POND_ROT_Y);
+
 export function groundHeightAt(x, z) {
     const dx = x - GARDEN_POINTS.POND.x, dz = z - GARDEN_POINTS.POND.z;
     const d = Math.hypot(dx, dz);
-    const shape = pondShapeAt(Math.atan2(dz, dx));
-    // The bank carries the full irregularity -- it is the outline you actually
-    // read from above. The BED only takes a quarter of it, because it has to
-    // stay wider than the scan's rock footprint (which reaches r=11) at every
-    // bearing; at full amplitude the bed pinched to 9.3m and the rocks punched
-    // straight back up through the lawn.
-    const bedR = POND_BED_R * (1 + (shape - 1) * 0.25);
-    const bankR = POND_BANK_R * shape;
-    if (d >= bankR) return 0;
-    const bank = POND_BANK_H * smoothstep01((bankR - d) / (bankR - bedR));
-    if (d >= bedR) return bank;
-    return bank - POND_BED_DEPTH * smoothstep01((bedR - d) / POND_RIM_W);
+    if (d > 16.0) return 0.0;
+
+    // Transform into pond's local orientation
+    const lx = _pondCos * dx - _pondSin * dz;
+    const lz = _pondSin * dx + _pondCos * dz;
+
+    // 1. Grassy hillside embankment rising behind the high rock wall
+    let hillH = 0.0;
+    const hillD = Math.hypot((lx - 10.5) * 0.70, (lz - 1.2) * 0.90);
+    if (hillD < 6.0) {
+        hillH = 1.6 * Math.pow(1.0 - hillD / 6.0, 1.4);
+    }
+
+    // 2. Sunken pond basin bed cradling the water pool
+    let basinH = 0.0;
+    const basinD = Math.hypot(lx - 0.4, (lz - 0.8) * 1.15);
+    if (basinD < 7.5) {
+        basinH = -0.48 * (1.0 - smoothstep01((basinD - 3.5) / 4.0));
+    }
+
+    return hillH + basinH;
 }
 
 /**
@@ -138,7 +122,9 @@ export function groundHeightAt(x, z) {
  * flower bed) that should keep a little more distance than grass does.
  */
 export function isGroundClear(x, z, margin = 0) {
-    if (Math.hypot(x - GARDEN_POINTS.POND.x, z - GARDEN_POINTS.POND.z) < POND_CLEAR_R + margin) return false;
+    const dx = x - GARDEN_POINTS.POND.x, dz = z - GARDEN_POINTS.POND.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 12.0 + margin) return false;
     if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
     const theta = Math.atan2(z, x);
     const pathR = pathRadiusAt(theta);
@@ -200,7 +186,6 @@ export function loadGarden(loadingManager) {
         // 3. Pond with Waterfalls (Top-Left corner)
         const pondObj = setupPond(pondGltf);
         gardenGroup.add(pondObj.model);
-        if (pondObj.waterMaterial) gardenGroup.add(createPondWaterDisc(pondObj.waterMaterial));
         interactives.push(pondObj.interactive);
         if (pondObj.update) updateables.push(pondObj.update);
 
@@ -562,8 +547,13 @@ function setupPond(gltf) {
     let waterMeshList = [];
     const skipMerge = new Set();   // meshes that keep their own material/shader
     let surfaceWaterMat = null;
+    let pondWaterUniforms = {
+        uPondC: { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) },
+        uTime: { value: 0.0 }
+    };
     let pondCardMat = null;      // shared alpha-cutout variant (vegetation planes)
     let pondSolidMat = null;     // shared opaque variant (scanned rock)
+    const rockGeomMap = new Map();
     let waterTex = null;
 
     if (gltf && gltf.scene) {
@@ -576,16 +566,6 @@ function setupPond(gltf) {
         const scaleFactor = targetWidth / Math.max(size.x, 0.001);
 
         model.scale.setScalar(scaleFactor);
-        // Back to essentially its authored height. This asset is a scan whose
-        // flat ground plane is baked into the same merged mesh as the rocks,
-        // so there is no separate skirt to feather, and its outer rim is a
-        // hard-edged rectangle sitting at about y +0.2 (measured across the
-        // band r >= 12: median +0.21, max +3.06 for the rocks). Sinking the
-        // model to -1.25 did hide that rim, but it also drowned the shore
-        // planting and left the pond reading as a hole punched in a flat
-        // plane. The rim is now covered by raising the LAND instead --
-        // groundHeightAt() swells the lawn up to meet it -- which keeps the
-        // pond's own elevation intact.
         model.position.set(-center.x * scaleFactor, -0.42, -center.z * scaleFactor);
 
         model.traverse((child) => {
@@ -633,66 +613,40 @@ function setupPond(gltf) {
                 skipMerge.add(child);   // its shader feathers against local coords
                 child.receiveShadow = true;
             } else if (matName.includes('water') || childName.includes('water')) {
-                const newWaterMat = new THREE.MeshStandardMaterial({
-                    color: 0x167280,
-                    emissive: 0x09363e,
-                    emissiveIntensity: 0.40,
-                    // roughness 0.05 + envMapIntensity 2.6 made the surface a
-                    // near-perfect mirror of scene.environment -- which is a
-                    // PMREM of Three's RoomEnvironment, i.e. a room containing
-                    // rectangular emissive light panels. The water dutifully
-                    // reflected one back as a hard white rectangle sitting on
-                    // the pond: the "ghost reflection". It was never in the
-                    // source asset. Roughening the surface scatters that
-                    // reflection into a broad sheen instead of a mirrored
-                    // shape, which is also what real pond water does.
-                    roughness: 0.34,
-                    metalness: 0.10,
-                    envMapIntensity: 0.8,
+                // If it's the raw 4-vertex rectangular water plane (Plane.003_water_0), hide it permanently
+                if (child.geometry && child.geometry.attributes.position && child.geometry.attributes.position.count <= 4) {
+                    child.visible = false;
+                    return;
+                }
+                // Cascading waterfalls down the rock mound (Plane.120_water_0, Plane.121_water_0)
+                const cascadeMat = new THREE.MeshStandardMaterial({
+                    color: 0x4aa697,
+                    roughness: 0.22,
+                    metalness: 0.08,
                     transparent: true,
-                    opacity: 0.90,
-                    depthWrite: true,
+                    opacity: 0.85,
+                    depthWrite: false,
                     side: THREE.DoubleSide
                 });
-                // The basin sits below the rim and reads as fully self-shadowed
-                // most of the day, and at this scene's low environmentIntensity
-                // (0.13) a near-mirror surface (roughness 0.05) has nothing left
-                // to reflect -- it rendered as a pure black hole rather than
-                // water. Same minimum-brightness floor already used for grass,
-                // so it always reads as dark teal water instead of void.
-                newWaterMat.onBeforeCompile = (shader) => {
-                    shader.uniforms.uPondC = { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) };
+                cascadeMat.onBeforeCompile = (shader) => {
+                    shader.uniforms.uTime = pondWaterUniforms.uTime;
                     shader.vertexShader = 'varying vec3 vWaterW;\n' + shader.vertexShader.replace(
                         '#include <worldpos_vertex>',
                         '#include <worldpos_vertex>\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
                     );
-                    shader.fragmentShader = 'varying vec3 vWaterW;\nuniform vec2 uPondC;\n' + shader.fragmentShader.replace(
+                    shader.fragmentShader = 'varying vec3 vWaterW;\nuniform float uTime;\n' + shader.fragmentShader.replace(
                         '#include <opaque_fragment>',
-                        `outgoingLight = max( outgoingLight, diffuseColor.rgb * 0.22 );
-                         // The main water sheet is a RECTANGLE -- four verts,
-                         // 18.6 x 20.2 -- so with the lawn's old circular
-                         // cutout gone its straight edge ran visibly across
-                         // the bank. Clip it to the basin instead.
+                        `// Luminous waterfall floor so cascading water never goes black in shadow
+                         outgoingLight = max(outgoingLight, vec3(0.06, 0.13, 0.12));
+                         float foam = sin(vWaterW.y * 14.0 - uTime * 3.5) * 0.5 + 0.5;
+                         outgoingLight += vec3(0.06, 0.10, 0.09) * foam * 0.5;
                          #include <opaque_fragment>`
                     );
                 };
-                child.material = newWaterMat;
-                if (!surfaceWaterMat) surfaceWaterMat = newWaterMat;
+                child.material = cascadeMat;
                 child.receiveShadow = true;
+                child.renderOrder = 3;
                 waterMeshList.push(child);
-                // The scan's main sheet is a single RECTANGLE. Its corners sit
-                // ~10m from the pond centre but its edge midpoints come in to
-                // ~7.3m, so it ends in hard straight lines well inside the
-                // basin -- and a radial clip can't help, because the geometry
-                // is simply not there to clip. Flat 4-vert sheets are hidden
-                // and replaced by a generated disc (createPondWaterDisc) that
-                // fills the basin properly. The 3D cascade meshes stay.
-                // Identified by vertex count, NOT by which local axis is flat:
-                // this node carries a -90 degree X rotation, so the sheet is
-                // flat in local Z, and a local-Y test silently never matched.
-                // Among the water meshes only the main sheet is a bare quad
-                // (4 verts); the cascades are 28 and 8.
-                if (child.geometry.attributes.position.count <= 4) child.visible = false;
             } else if (matName.includes('riple') || childName.includes('riple')) {
                 // Removed outright. These are baked light-glint cards from the
                 // original scan -- flat quads whose greyscale+alpha texture is
@@ -758,6 +712,7 @@ function setupPond(gltf) {
                         pondCardMat.shadowSide = THREE.FrontSide;
                     }
                     child.material = pondCardMat;
+                    child.renderOrder = 4;
                 } else {
                     if (!pondSolidMat) {
                         pondSolidMat = mat.clone();
@@ -767,6 +722,12 @@ function setupPond(gltf) {
                         pondSolidMat.side = THREE.FrontSide;
                     }
                     child.material = pondSolidMat;
+                    if (childName.startsWith('icosphere')) {
+                        const baseName = childName.split('_')[0];
+                        if (!rockGeomMap.has(baseName)) {
+                            rockGeomMap.set(baseName, child.geometry);
+                        }
+                    }
                 }
             }
         });
@@ -775,12 +736,164 @@ function setupPond(gltf) {
     }
 
     group.position.copy(GARDEN_POINTS.POND);
-    group.rotation.y = Math.PI * 0.35;
-    group.add(model);
+    group.rotation.y = POND_ROT_Y;   // 2.35 rad (135 deg: pond faces southeast into the garden, high cliff sits against corner)
+    if (model) group.add(model);
+
+    // Sloping Stone Structure behind the high rock wall
+    // Conceals the cut-off backside and steps down naturally into the grassy hillside
+    const g04 = rockGeomMap.get('icosphere.004') || rockGeomMap.get('icosphere');
+    const g10 = rockGeomMap.get('icosphere.010') || g04;
+    const g12 = rockGeomMap.get('icosphere.012') || g04;
+    const g31 = rockGeomMap.get('icosphere.031') || g04;
+
+    if (g04 && pondSolidMat) {
+        const slopeDefs = [
+            // Tier 1: Capping the raw high cut-off cliff (Y: 1.6 to 2.1m)
+            { geo: g12, pos: [9.2, 2.05, 2.8], scale: [2.3, 2.0, 2.3], rot: [0.2, 0.5, -0.1] },
+            { geo: g04, pos: [8.8, 1.85, 0.6], scale: [2.4, 2.1, 2.4], rot: [-0.1, -0.4, 0.2] },
+            { geo: g10, pos: [9.0, 1.60, -1.6], scale: [2.1, 1.8, 2.1], rot: [0.3, -0.8, 0.1] },
+            // Tier 2: Mid slope stepping down (Y: 0.9 to 1.3m)
+            { geo: g31, pos: [11.2, 1.25, 3.2], scale: [2.5, 1.9, 2.5], rot: [-0.2, 0.9, 0.3] },
+            { geo: g12, pos: [10.9, 1.10, 0.8], scale: [2.6, 2.0, 2.6], rot: [0.1, 0.3, -0.2] },
+            { geo: g04, pos: [10.7, 0.85, -1.3], scale: [2.3, 1.7, 2.3], rot: [-0.3, -0.6, 0.2] },
+            // Tier 3: Base slope anchoring into turf (Y: 0.2 to 0.45m)
+            { geo: g10, pos: [13.0, 0.42, 2.6], scale: [2.6, 1.6, 2.6], rot: [0.2, 0.4, 0.1] },
+            { geo: g04, pos: [12.7, 0.28, 0.5], scale: [2.8, 1.5, 2.8], rot: [-0.1, 0.7, -0.2] },
+            { geo: g31, pos: [12.4, 0.18, -1.1], scale: [2.4, 1.4, 2.4], rot: [0.1, -0.5, 0.3] },
+        ];
+
+        slopeDefs.forEach((d, idx) => {
+            const rock = new THREE.Mesh(d.geo, pondSolidMat);
+            rock.name = `PondSlopeRock_${idx}`;
+            rock.position.set(d.pos[0], d.pos[1], d.pos[2]);
+            rock.scale.set(d.scale[0], d.scale[1], d.scale[2]);
+            rock.rotation.set(d.rot[0], d.rot[1], d.rot[2]);
+            rock.castShadow = true;
+            rock.receiveShadow = true;
+            group.add(rock);
+        });
+    }
+
+    // Organic shoreline-fitted water surface matching the single pond basin
+    function createPondWaterSurface() {
+        const rings = 20;
+        const segments = 64;
+        const geo = new THREE.BufferGeometry();
+        const positions = [];
+        const uvs = [];
+        const indices = [];
+
+        const centerX = 0.40;
+        const centerZ = 0.77;
+        const waterY = -0.42;
+
+        function basinRadius(theta) {
+            return 6.3 + 1.25 * Math.cos(theta - 2.8) + 0.45 * Math.sin(2.0 * theta);
+        }
+
+        // Center vertex
+        positions.push(centerX, waterY, centerZ);
+        uvs.push(0.5, 0.5);
+
+        for (let r = 1; r <= rings; r++) {
+            const frac = r / rings;
+            for (let s = 0; s < segments; s++) {
+                const theta = (s / segments) * Math.PI * 2;
+                const maxR = basinRadius(theta);
+                const rad = maxR * frac;
+                const x = centerX + Math.cos(theta) * rad;
+                const z = centerZ + Math.sin(theta) * rad;
+                positions.push(x, waterY, z);
+                uvs.push(0.5 + (x - centerX) / 16.0, 0.5 + (z - centerZ) / 16.0);
+            }
+        }
+
+        for (let s = 0; s < segments; s++) {
+            const nextS = (s + 1) % segments;
+            indices.push(0, 1 + s, 1 + nextS);
+        }
+
+        for (let r = 1; r < rings; r++) {
+            const curRow = 1 + (r - 1) * segments;
+            const nextRow = 1 + r * segments;
+            for (let s = 0; s < segments; s++) {
+                const nextS = (s + 1) % segments;
+                const i0 = curRow + s;
+                const i1 = curRow + nextS;
+                const o0 = nextRow + s;
+                const o1 = nextRow + nextS;
+                indices.push(i0, o0, i1);
+                indices.push(i1, o0, o1);
+            }
+        }
+
+        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        geo.setIndex(indices);
+        geo.computeVertexNormals();
+        return geo;
+    }
+
+    surfaceWaterMat = new THREE.MeshStandardMaterial({
+        color: 0x164c42,       // Deep natural wetland pond emerald
+        roughness: 0.16,       // Smooth reflective pond surface
+        metalness: 0.08,
+        envMapIntensity: 1.2,
+        transparent: true,
+        opacity: 0.88,
+        depthWrite: false,     // Allows submerged rocks and lilies to be visible, zero depth fighting
+        depthTest: true,
+        side: THREE.DoubleSide
+    });
+
+    surfaceWaterMat.onBeforeCompile = (shader) => {
+        shader.uniforms.uPondC = pondWaterUniforms.uPondC;
+        shader.uniforms.uTime = pondWaterUniforms.uTime;
+        shader.vertexShader = 'varying vec3 vWaterW;\nvarying vec3 vWaterLocal;\n' + shader.vertexShader.replace(
+            '#include <worldpos_vertex>',
+            '#include <worldpos_vertex>\n vWaterLocal = position;\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+        );
+        shader.fragmentShader = 'varying vec3 vWaterW;\nvarying vec3 vWaterLocal;\nuniform vec2 uPondC;\nuniform float uTime;\n' + shader.fragmentShader.replace(
+            '#include <opaque_fragment>',
+            `// Minimum luminous floor so water never turns into a black hole in shadow or night
+             vec3 waterFloor = vec3(0.045, 0.095, 0.088);
+             outgoingLight = max(outgoingLight, waterFloor);
+
+             // Gentle natural water drift and surface shimmer
+             float wave1 = sin(vWaterW.x * 2.2 + vWaterW.z * 1.8 + uTime * 0.7);
+             float wave2 = cos(vWaterW.x * 1.5 - vWaterW.z * 2.1 + uTime * 0.5);
+             float ripple = (wave1 + wave2) * 0.5;
+             outgoingLight += vec3(0.015, 0.028, 0.024) * (ripple * 0.5 + 0.5);
+
+             // Soft sky fresnel reflectance at grazing camera angles
+             vec3 viewDir = normalize(cameraPosition - vWaterW);
+             float fresnel = pow(1.0 - max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0), 3.5);
+             outgoingLight += vec3(0.05, 0.11, 0.13) * fresnel * 0.45;
+             #include <opaque_fragment>
+
+             // Soft shoreline feathering so the water smoothly blends into the bank with zero hard edge
+             float dx = vWaterLocal.x - 0.40;
+             float dz = vWaterLocal.z - 0.77;
+             float localDist = length(vec2(dx, dz));
+             float localAngle = atan(dz, dx);
+             float maxR = 6.3 + 1.25 * cos(localAngle - 2.8) + 0.45 * sin(2.0 * localAngle);
+             float edgeFade = 1.0 - smoothstep(maxR * 0.90, maxR, localDist);
+             gl_FragColor.a *= edgeFade;
+             if (gl_FragColor.a <= 0.005) discard;`
+        );
+    };
+
+    const pondWaterMesh = new THREE.Mesh(createPondWaterSurface(), surfaceWaterMat);
+    pondWaterMesh.name = 'PondWaterSurface';
+    pondWaterMesh.receiveShadow = true;
+    pondWaterMesh.renderOrder = 2;
+    group.add(pondWaterMesh);
+    waterMeshList.push(pondWaterMesh);
+    skipMerge.add(pondWaterMesh);
 
     // Hitbox for hover/click (local coordinates relative to group)
     const hitbox = new THREE.Mesh(
-        new THREE.CylinderGeometry(13.0, 13.0, 5.0, 16, 1, true),
+        new THREE.CylinderGeometry(12.5, 12.5, 5.0, 24, 1, true),
         new THREE.MeshBasicMaterial({ visible: false })
     );
     hitbox.position.set(0, 2.5, 0);
@@ -805,11 +918,12 @@ function setupPond(gltf) {
     // has already been found and re-materialled.
     if (gltf && gltf.scene) {
         waterMeshList.forEach((m) => skipMerge.add(m));
-        const stats = mergeStaticByMaterial(model, skipMerge);
-        console.info(`[garden] pond merged ${stats.removed} meshes into ${stats.merged} (kept ${stats.remaining} unmerged)`);
+        const stats = mergeStaticByMaterial(group, skipMerge);
+        console.info(`[garden] single pond merged ${stats.removed} meshes into ${stats.merged} (kept ${stats.remaining} unmerged)`);
     }
 
     const update = (time) => {
+        if (pondWaterUniforms) pondWaterUniforms.uTime.value = time;
         for (let i = 0; i < waterMeshList.length; i++) {
             const m = waterMeshList[i];
             if (!m.material) continue;
@@ -840,45 +954,9 @@ function setupPond(gltf) {
             targetGroup: group,
             data: interactiveData
         },
-        // Shared with the generated water disc, so the disc picks up the same
-        // colour, ripple scroll and brightness floor as the cascade meshes.
         waterMaterial: surfaceWaterMat,
         update
     };
-}
-
-/**
- * The pond's open water: a real disc sized to the carved basin, replacing the
- * scan's rectangular sheet. Being a circle, it has no straight edge to betray
- * it from any angle, and its radius is chosen to sit just inside the basin rim
- * so the lawn always meets water rather than water meeting lawn.
- */
-function createPondWaterDisc(material) {
-    // Built as a fan on the SAME irregular outline as the dig, rather than a
-    // CircleGeometry, so the waterline follows the bank instead of cutting a
-    // circle across it. Radius is pulled in from the bed's edge so the rocks
-    // always overlap the water's rim and it never ends in open air.
-    const SEG = 96, R = POND_BED_R * 0.58;
-    const shapeMix = (a) => 1 + (pondShapeAt(a) - 1) * 0.55;   // between bed and bank
-    const pos = [0, 0, 0];
-    const idx = [];
-    for (let i = 0; i < SEG; i++) {
-        const a = (i / SEG) * Math.PI * 2;
-        const r = R * shapeMix(a);
-        pos.push(Math.cos(a) * r, 0, Math.sin(a) * r);
-        idx.push(0, 1 + i, 1 + ((i + 1) % SEG));
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    geo.setIndex(idx);
-    geo.computeVertexNormals();
-
-    const mesh = new THREE.Mesh(geo, material);
-    mesh.name = 'PondWaterDisc';
-    mesh.position.set(GARDEN_POINTS.POND.x, -0.45, GARDEN_POINTS.POND.z);
-    mesh.receiveShadow = true;
-    mesh.renderOrder = 1;
-    return mesh;
 }
 
 // ---------------------------------------------------------------------------

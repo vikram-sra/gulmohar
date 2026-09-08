@@ -22,8 +22,8 @@ const TIERS = {
     low: {
         floorLeafCount: 10, microPlantCount: 16,
         grassCount: 5000, grassRadius: 34, backgroundTrees: 2, vegClumpCount: 70, denseGrassCount: 14,
-        shadowMapSize: 1024, shadowIntervalMs: 160, shadowType: THREE.PCFShadowMap,
-        shadowRadius: 0.7, foliageReceiveShadow: false,
+        shadowMapSize: 1024, shadowIntervalMs: 140, shadowType: THREE.PCFShadowMap,
+        shadowRadius: 1.0, foliageReceiveShadow: false,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2,
         canopySide: THREE.DoubleSide,
         skySegW: 16, skySegH: 12, dustCount: 0
@@ -31,8 +31,8 @@ const TIERS = {
     medium: {
         floorLeafCount: 24, microPlantCount: 34,
         grassCount: 9000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 150, denseGrassCount: 28,
-        shadowMapSize: 2048, shadowIntervalMs: 110, shadowType: THREE.PCFShadowMap,
-        shadowRadius: 1.0, foliageReceiveShadow: true,
+        shadowMapSize: 2048, shadowIntervalMs: 90, shadowType: THREE.PCFShadowMap,
+        shadowRadius: 1.4, foliageReceiveShadow: true,
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
         canopySide: THREE.DoubleSide,
         skySegW: 24, skySegH: 16, dustCount: 60
@@ -40,23 +40,12 @@ const TIERS = {
     high: {
         floorLeafCount: 45, microPlantCount: 60,
         grassCount: 14000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 260, denseGrassCount: 48,
-        // PCF, not PCFSoft. PCFSoft is the most expensive filter Three offers
-        // and -- the part that actually decided this -- it IGNORES
-        // shadow.radius entirely, deriving a fixed kernel from texel size.
-        // So the radius 1.8 this project carried was a no-op: we were paying
-        // PCFSoft's tap count for a blur setting that never applied. PCF costs
-        // fewer taps AND makes radius mean something, so the shadows get both
-        // faster and smoother. duar.one's forest view reaches the same
-        // conclusion (PCFShadowMap, radius 0.9, "finer texels need less bias
-        // and less blur to hide them").
-        // PCFSoft on the top tier only. It ignores shadow.radius and costs the
-        // most taps of any filter Three offers, but its kernel is genuinely
-        // smoother than PCF's -- and with the depth pass no longer strobing
-        // (see wind.js) the remaining softness question is purely spatial,
-        // which is the one PCFSoft actually answers. Lower tiers keep PCF,
-        // where radius does apply and the tap count is affordable.
-        shadowMapSize: 3072, shadowIntervalMs: 82, shadowType: THREE.PCFSoftShadowMap,
-        shadowRadius: 1.5, foliageReceiveShadow: true,
+        // PCFShadowMap on all tiers. In Three.js v0.182, PCFShadowMap provides
+        // hardware depth comparison filtering with Vogel disk / IGN sampling
+        // and honors shadow.radius (1.8), giving organic dappled leaf shadows
+        // without pixel-stair artifacts or the fallback to basic 1-tap shadows.
+        shadowMapSize: 2048, shadowIntervalMs: 60, shadowType: THREE.PCFShadowMap,
+        shadowRadius: 1.8, foliageReceiveShadow: true,
         pixelRatioCap: 1.5, antialias: true, anisotropy: 8,
         canopySide: THREE.DoubleSide,
         skySegW: 32, skySegH: 24, dustCount: 100

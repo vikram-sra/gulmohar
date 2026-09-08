@@ -220,7 +220,7 @@ class GulmoharApp {
         this.controls.maxDistance = 58;
         this.controls.maxPolarAngle = Math.PI * 0.48;   // low upward glance, never below ground
         this.controls.autoRotate = false;               // released when the intro descent begins
-        this.controls.autoRotateSpeed = -0.6;
+        this.controls.autoRotateSpeed = -0.35;
 
         // autoRotate keeps adding its own delta every frame regardless of
         // user input, so a drag while it's running fights the ambient spin
@@ -321,8 +321,8 @@ class GulmoharApp {
         // 12Hz cadence fires, and at this frustum 3072 still resolves leaf
         // detail (~4.4cm/texel) well past the point 2048 went blocky.
         const shadowRes = QUALITY.shadowMapSize;
-        // Compact shadow frustum tightly framing the garden for high performance and crisp shadows
-        const d = 34;
+        // Sized to encompass the full garden radius (41m) plus outer canopy branches
+        const d = 45.0;
 
         this.sunDist = 1600;
         this.sunLight = new THREE.DirectionalLight(0xfff2c8, 3.8);
@@ -330,17 +330,16 @@ class GulmoharApp {
         [this.sunLight, this.moonLight].forEach((light) => {
             light.castShadow = true;
             light.shadow.mapSize.set(shadowRes, shadowRes);
-            // near 10 rather than 5: the lights sit 1600 units out, nothing is
-            // within 10 units of them, and pulling the near plane in wastes
-            // depth precision across the whole range that IS occupied.
-            light.shadow.camera.near = 10.0;
-            light.shadow.camera.far = 600;
+            // Light distance is 350 units; scene spans -45 to +45 from origin.
+            // Tightening near (250) and far (450) concentrates depth buffer precision.
+            light.shadow.camera.near = 250.0;
+            light.shadow.camera.far = 450.0;
             Object.assign(light.shadow.camera, { left: -d, right: d, top: d, bottom: -d });
             light.shadow.camera.updateProjectionMatrix();
-            light.shadow.bias = -0.0001;
-            light.shadow.normalBias = 0.018;   // finer texels need less bias (duar.one)
+            // Positive bias avoids self-shadow acne; normalBias handles grazing angles
+            light.shadow.bias = 0.00005;
+            light.shadow.normalBias = 0.022;
             // Now actually has an effect -- radius is honoured by PCFShadowMap
-            // but silently ignored by PCFSoftShadowMap, which this used to be.
             light.shadow.radius = QUALITY.shadowRadius;
             this.scene.add(light);
             this.scene.add(light.target);
@@ -486,10 +485,7 @@ class GulmoharApp {
             roughness: 0.95,
             metalness: 0.02,
             transparent: true,
-            depthWrite: true,
-            polygonOffset: true,
-            polygonOffsetFactor: 1,
-            polygonOffsetUnits: 1
+            depthWrite: true
         });
         this.groundMat.onBeforeCompile = (shader) => {
             shader.vertexShader = 'varying vec3 vGroundWorldPos;\n' + shader.vertexShader.replace(
@@ -564,6 +560,7 @@ class GulmoharApp {
         // rotateX is already baked into the geometry above, so the mesh
         // itself stays unrotated -- the displaced Y is world Y.
         ground.receiveShadow = true;
+        ground.renderOrder = 0;
         this.scene.add(ground);
         this.groundMesh = ground;   // referenced by the editor for ground-mount raycasts
 
@@ -1062,7 +1059,7 @@ class GulmoharApp {
                     // Release means "stay where you left it" for the time buttons,
                     // and "settle back to ambient" for the motion button.
                     if (btn === this.motionBtn) {
-                        this.controls.autoRotateSpeed = -0.8;
+                        this.controls.autoRotateSpeed = -0.35;
                         this.daySpeed = AMBIENT_DAY_SPEED;
                     } else {
                         this.daySpeed = 0;
@@ -1083,24 +1080,25 @@ class GulmoharApp {
         this.motionBtn = motionBtn;
         addLongPress(motionBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false);
-            this.controls.autoRotateSpeed = Math.max(-40, Math.min(-0.5, this.controls.autoRotateSpeed * 1.05));
-            if (this.daySpeed < 0.02) this.daySpeed = 0.02;
-            this.daySpeed = Math.min(0.65, this.daySpeed * 1.08);
+            // Cap at -2.2 for smooth, controlled acceleration without disorienting spin
+            this.controls.autoRotateSpeed = Math.max(-2.2, Math.min(-0.35, this.controls.autoRotateSpeed * 1.04));
+            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
+            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
         }, () => this.setMotionPaused(!this.motionPaused));
 
         const sunBtn = createBtn(icons.day, null, 'Noon · Hold for a time-lapse');
         sunBtn.classList.add('day-btn');
         addLongPress(sunBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.01) this.daySpeed = 0.01;
-            this.daySpeed = Math.min(0.20, this.daySpeed * 1.10);
+            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
+            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
         }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; });
 
         const spiralBtn = createBtn(icons.spiral, null, 'Time warp · Hold to cycle');
         addLongPress(spiralBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.02) this.daySpeed = 0.02;
-            this.daySpeed = Math.min(0.65, this.daySpeed * 1.08);
+            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
+            this.daySpeed = Math.min(0.05, this.daySpeed * 1.04);
         }, () => {
             this.sunAngle = (this.sunAngle + Math.PI / 12) % (Math.PI * 2);
             this.daySpeed = 0;
@@ -1111,8 +1109,8 @@ class GulmoharApp {
         moonBtn.classList.add('night-btn');
         addLongPress(moonBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.01) this.daySpeed = 0.01;
-            this.daySpeed = Math.min(0.20, this.daySpeed * 1.10);
+            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
+            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
         }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; });
 
         // The routes to the flat pages also exist in the always-visible corner
