@@ -177,20 +177,20 @@
       background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
       backdrop-filter: blur(28px) saturate(180%) brightness(1.03);
       -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.03);
-      padding: 5px 11px;
+      padding: 4px 9px;
       border-radius: 999px;
       border: 0.5px solid var(--hud-border);
       box-shadow: var(--hud-shadow);
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 5px;
     }
     .glass-btn {
       background: var(--hud-btn-bg);
       color: var(--hud-ink);
       border: 0.5px solid var(--hud-btn-border);
       border-radius: 999px;
-      width: 32px; height: 32px;
+      width: 28px; height: 28px;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: all 0.15s ease, background 0.9s ease, border-color 0.9s ease, color 0.9s ease;
@@ -204,7 +204,7 @@
       touch-action: none;
       -webkit-tap-highlight-color: transparent;
     }
-    .glass-btn svg { width: 16px; height: 16px; fill: none; stroke: currentColor;
+    .glass-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor;
                      stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
     .glass-btn:hover {
       background: var(--hud-glass-a); border-color: var(--hud-border);
@@ -261,13 +261,17 @@
 
     @media (max-width: 600px) {
       #dock {
-        bottom: calc(18px + env(safe-area-inset-bottom));
+        bottom: calc(14px + env(safe-area-inset-bottom));
         padding: 0 10px;
         width: 100vw;
       }
       .glass-bar-wrapper {
-        gap: 6px;
-        padding: 6px 12px;
+        gap: 4px;
+        padding: 4px 8px;
+        /* 9 buttons at this size (270 + 32 gaps + 16 padding = 318px) now
+           fit inside a 375px-wide phone without touching the scroll edge --
+           at the old 36px/6px/6px-12px this was 408px against a 355px
+           available width and every phone scrolled to reach About/Instagram. */
         max-width: calc(100vw - 20px);
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
@@ -275,14 +279,18 @@
       }
       .glass-bar-wrapper::-webkit-scrollbar { display: none; }
       .glass-btn {
-        width: 36px;
-        height: 36px;
-        min-width: 36px;
-        min-height: 36px;
+        width: 30px;
+        height: 30px;
+        min-width: 30px;
+        min-height: 30px;
         flex-shrink: 0;
-        touch-action: manipulation;
+        /* NOT manipulation -- that reintroduces exactly the scroll-hijack
+           the base .glass-btn rule turns off (see its own comment), and this
+           media query used to override it right back on the phones that hit
+           it most. */
+        touch-action: none;
       }
-      .glass-btn svg { width: 18px; height: 18px; stroke-width: 1.4; }
+      .glass-btn svg { width: 15px; height: 15px; stroke-width: 1.35; }
       .ui-overlay { top: calc(18px + env(safe-area-inset-top)); left: calc(18px + env(safe-area-inset-left)); }
       #clock { top: calc(18px + env(safe-area-inset-top)); right: calc(18px + env(safe-area-inset-right)); font-size: 11px; }
       .fps-sprint-btn {

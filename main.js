@@ -82,6 +82,7 @@ const C_FLOOR_MIDNIGHT = new THREE.Color(0x28382c);   // deep twilight forest fl
 
 const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
+const WALK_UI_HIDE_MS = 3200;
 
 class GulmoharApp {
     constructor() {
@@ -295,12 +296,23 @@ class GulmoharApp {
         window.addEventListener('pointerdown', (e) => {
             startX = e.clientX; startY = e.clientY; startTime = performance.now();
             this.onPointerMove(e);              // touch has no hover; raycast on contact
-            this.resetUIHideTimer();
+            // Dock buttons stop propagation before this ever runs, so every
+            // touch reaching here in walk mode is the canvas: engaging the
+            // joystick, dragging to look, or a tap. Reviving the dock's timer
+            // on EVERY one of those meant it never actually got out of the
+            // way while playing -- each re-grip of the joystick reset the
+            // clock. Reveal immediately for orbiting/browsing as before;
+            // while walking, wait to see whether this turns into a real tap
+            // (below) rather than a hold or a drag.
+            if (this.navMode !== 'walk') this.resetUIHideTimer();
         });
         window.addEventListener('pointerup', (e) => {
             const moved = Math.hypot(e.clientX - startX, e.clientY - startY);
-            // A tap, not the end of an orbit drag or a long press.
-            if (moved < 8 && performance.now() - startTime < 350) this.onClick(e);
+            // A tap, not the end of an orbit drag, a walk/look drag, or a long press.
+            if (moved < 8 && performance.now() - startTime < 350) {
+                this.onClick(e);
+                this.resetUIHideTimer();
+            }
             if (e.pointerType === 'touch') this.hovered = null;
         });
         ['gesturestart', 'gesturechange', 'gestureend'].forEach(g =>
@@ -799,7 +811,13 @@ class GulmoharApp {
             -(e.clientY / window.innerHeight) * 2 + 1
         );
         this._hoverDirty = true;
-        this.resetUIHideTimer();
+        // No resetUIHideTimer() here -- this runs on EVERY pointermove
+        // anywhere on the page (window listener below, passive), so it used
+        // to mean the dock's countdown restarted on any mouse jiggle on
+        // desktop and on every step of a joystick/look/orbit drag, which is
+        // to say it effectively never auto-hid at all as long as a pointer
+        // was doing anything. Revealing it is left to actual gestures:
+        // pointerdown (below), a completed tap, and the dock's own buttons.
     }
 
     checkHover() {
@@ -1129,7 +1147,12 @@ class GulmoharApp {
     resetUIHideTimer() {
         clearTimeout(this._uiHideTimer);
         if (!this.uiVisible) this.setUIVisibility(true);
-        this._uiHideTimer = setTimeout(() => this.setUIVisibility(false), UI_HIDE_MS);
+        // Shorter while walking: the touch controls (joystick, jump, sprint)
+        // already cover "how do I move", so the top dock lingering for the
+        // same 6s it gets during idle orbiting just sits in the way of the
+        // view a moment longer than it needs to.
+        const delay = this.navMode === 'walk' ? WALK_UI_HIDE_MS : UI_HIDE_MS;
+        this._uiHideTimer = setTimeout(() => this.setUIVisibility(false), delay);
     }
 
     setUIVisibility(visible) {
