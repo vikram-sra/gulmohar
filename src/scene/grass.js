@@ -26,17 +26,18 @@ import { windUniforms } from './wind.js';
 // assets are authored at completely different scales -- the grass cards are
 // ~1.0 unit tall, the vegetation clumps are not. Each card is measured and
 // scaled to hit the requested real-world height.
-const GRASS_HEIGHT_M = 0.30;
+const GRASS_HEIGHT_M = 0.38;
 
 // Subtle now, not structural: the texture carries the colour, so this only
 // breaks up repetition between neighbouring tufts. The old palette had to
 // BE the colour, which is why it was so much stronger.
+// Lush natural botanical garden grass palette
 const TINT = [
-    new THREE.Color(0xffffff),
-    new THREE.Color(0xe8f0d8),
-    new THREE.Color(0xd2ddc0),
-    new THREE.Color(0xc2d2ac),
-    new THREE.Color(0xdfe8cf)
+    new THREE.Color(0x569632), // rich vibrant meadow green
+    new THREE.Color(0x428024), // deep emerald turf green
+    new THREE.Color(0x6cae3c), // sunlit bright spring green
+    new THREE.Color(0x4d8c2c), // lush botanical lawn green
+    new THREE.Color(0x386e1e)  // deep lush shade green
 ];
 
 /**
@@ -72,6 +73,7 @@ uniform float uWindTime;
 uniform float uWindStrength;
 attribute vec3 aGrassColor;
 varying vec3 vGrassColor;
+varying float vGrassHeightRatio;
 ` + shader.vertexShader;
         shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
@@ -85,34 +87,51 @@ vGrassColor = aGrassColor;
     vec4 wPos = modelMatrix * vec4(transformed, 1.0);
 #endif
     float heightRatio = clamp(transformed.y / ${Math.max(localH, 0.001).toFixed(4)}, 0.0, 1.0);
-    float root = heightRatio * heightRatio;
-    float phase = dot(wPos.xz, vec2(0.7, 0.7)) * 0.12 - uWindTime * 1.7;
-    float sway = sin(phase) * 0.7 + sin(phase * 1.8 + wPos.x * 0.9) * 0.3;
-    // 0.72, against the canopy's much smaller swayFraction: grass is light and
-    // should visibly answer a gust that a heavy branch barely registers.
-    float amp = uWindStrength * ${(localH * 0.72).toFixed(4)} * root;
-    transformed.x += sway * amp;
-    transformed.z += sway * amp * 0.6;
+    vGrassHeightRatio = heightRatio;
+    // Blade compliance: smooth curve so the whole blade body sways gracefully
+    float root = pow(heightRatio, 1.45);
+
+    // Rolling gentle wind wave across the field
+    vec2 windDir = normalize(vec2(0.82, 0.57));
+    float wavePhase = dot(wPos.xz, windDir) * 0.18 - uWindTime * 1.65;
+    float crossPhase = dot(wPos.xz, vec2(-windDir.y, windDir.x)) * 0.14;
+    float wave = sin(wavePhase) * 0.72 + sin(wavePhase * 1.85 + crossPhase) * 0.28;
+
+    // Organic tip flutter on individual tufts
+    float tipFlutter = sin(uWindTime * 3.8 + dot(wPos.xz, vec2(2.1, 1.8))) * 0.22;
+    float sway = wave + tipFlutter;
+
+    // Rich, visible flowing wind amplitude
+    float swell = sin(uWindTime * 0.9 + dot(wPos.xz, vec2(0.04, 0.03))) * 0.20 + 0.80;
+    float amp = (uWindStrength * swell + 0.045) * ${(localH * 2.10).toFixed(4)} * root;
+
+    transformed.x += (windDir.x * sway + (-windDir.y) * sin(wavePhase * 1.3) * 0.16) * amp;
+    transformed.z += (windDir.y * sway + (windDir.x) * sin(wavePhase * 1.3) * 0.16) * amp;
+    // Natural tip downward bend under breeze (preserves apparent blade length)
+    transformed.y -= (abs(sway) * 0.22 + (sway * sway) * 0.16) * amp * heightRatio;
 }
 `
         );
 
-        // Colour travels through a varying we own end to end, rather than
-        // Three's built-in vertexColors/instanceColor path -- that path
-        // measured as silently broken on this build: USE_INSTANCING_COLOR
-        // never made it into the compiled shader despite a valid, populated
-        // InstancedBufferAttribute, so every instance rendered at vColor's
-        // uninitialised default of black. Verified by dumping the actual
-        // compiled vertexShader source, not inferred from setColorAt
-        // appearing to succeed.
         shader.fragmentShader = `
 varying vec3 vGrassColor;
+varying float vGrassHeightRatio;
 ` + shader.fragmentShader;
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <color_fragment>',
             `
 #include <color_fragment>
-diffuseColor.rgb *= vGrassColor;
+// Multiply by lush green instance tint
+diffuseColor.rgb *= vGrassColor * 1.35;
+
+// Chlorophyll sunlight transmission: upper blades catch vibrant spring emerald
+float tipSun = smoothstep(0.18, 0.95, vGrassHeightRatio);
+vec3 chlorophyll = vec3(diffuseColor.g * 0.72, diffuseColor.g * 1.15, diffuseColor.g * 0.35);
+diffuseColor.rgb = mix(diffuseColor.rgb, chlorophyll, 0.38 * tipSun);
+
+// Ground contact occlusion: darkens roots into the soil
+float contactAO = mix(0.50, 1.0, smoothstep(0.02, 0.42, vGrassHeightRatio));
+diffuseColor.rgb *= contactAO;
 `
         );
     };
@@ -188,8 +207,8 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
 
             dummy.position.set(x, groundHeightAt(x, z), z);
             dummy.rotation.set(0, rand() * Math.PI * 2, 0);
-            const s = cardScale * (0.8 + rand() * 0.5);
-            dummy.scale.set(s, s, s);
+            const s = cardScale * (1.10 + rand() * 0.40);
+            dummy.scale.set(s * (1.12 + rand() * 0.20), s, s * (1.12 + rand() * 0.20));
             dummy.updateMatrix();
             mesh.setMatrixAt(placed, dummy.matrix);
 

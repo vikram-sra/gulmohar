@@ -22,36 +22,59 @@ export const GARDEN_POINTS = {
 // scope so grass and flower beds can ask "is this point clear of the path"
 // without re-typing the curve's formula, the way the ground shader used to
 // re-type the pond's coordinates.
-const PATH_BASE_R = 15.5;
-const PATH_WAVE_AMP = 2.8;
+const PATH_BASE_R = 21.0;
 const PATH_WIDTH = 2.4;
 const POND_CLEAR_R = 10.5;   // scatter grass and plants up to the pond perimeter
-const GAZEBO_CLEAR_R = 4.6;
+const GAZEBO_CLEAR_R = 5.2;
+
+function angDiff(a, b) {
+    return Math.atan2(Math.sin(a - b), Math.cos(a - b));
+}
 
 /**
- * The path loop's shape, sampled once per angle and shared by everything
- * that needs it -- the path mesh itself, `isGroundClear`'s exclusion band,
- * and the flower-bed placer -- so it's defined exactly once. The base 4-lobe
- * clover (matching the original sketch) is layered with two higher-frequency,
- * phase-shifted sines so the loop reads as an irregular, hand-walked trail
- * rather than a uniform clover -- all three terms are integer multiples of
- * theta, so the curve still closes without a seam at theta = 0 / 2*PI.
+ * Pathway width varying dynamically -- widens in front of the gazebo into an expansive entrance plaza.
  */
-const PATH_POND_CLEARANCE = 13.8;   // keep the path out of the pond basin
+export function pathWidthAt(theta) {
+    let w = PATH_WIDTH;
+    // Gazebo plaza/terrace (deg 39.3° / 0.69 rad) - generous, wide paved entrance apron
+    w += 2.6 * Math.exp(-Math.pow(angDiff(theta, 0.69) / 0.40, 2));
+    return w;
+}
 
+/**
+ * Organic, winding garden pathway loop routed outwards towards the tree trunks
+ * and landmark features of the garden.
+ */
 function pathRadiusAt(theta) {
-    const base = PATH_BASE_R
-        + Math.sin(theta * 4) * PATH_WAVE_AMP
-        + Math.sin(theta * 7 + 1.3) * (PATH_WAVE_AMP * 0.4)
-        + Math.sin(theta * 11 - 0.6) * (PATH_WAVE_AMP * 0.22);
+    let r = PATH_BASE_R;
 
-    const px = GARDEN_POINTS.POND.x, pz = GARDEN_POINTS.POND.z;
-    const proj = px * Math.cos(theta) + pz * Math.sin(theta);
-    if (proj <= 0) return base;
-    const disc = proj * proj - (px * px + pz * pz) + PATH_POND_CLEARANCE * PATH_POND_CLEARANCE;
-    if (disc <= 0) return base;
-    const nearRoot = proj - Math.sqrt(disc);
-    return nearRoot > 0 ? Math.min(base, nearRoot) : base;
+    // 1. Maple Tree (deg 317.6° / 5.54 rad, trunk at 31.1m) - sweeps outward right by the trunk
+    r += 7.8 * Math.exp(-Math.pow(angDiff(theta, 5.54) / 0.44, 2));
+
+    // 2. Gazebo (deg 39.3° / 0.69 rad) - sweeps outwards flush to the gazebo entrance steps
+    r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 0.69) / 0.46, 2));
+
+    // 3. Banyan Tree (deg 152° / 2.65 rad, trunk at 27.0m) - curves beside the trunk & root flare
+    r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 2.65) / 0.42, 2));
+
+    // 4. Pond Shoreline (deg 219.6° / 3.84 rad) - skirts along the stepping stones & front rocks
+    r -= 2.0 * Math.exp(-Math.pow(angDiff(theta, 3.84) / 0.35, 2));
+
+    // 5. Mango Tree (deg 252° / 4.40 rad, trunk at 25.5m) - winds beside the trunk under canopy
+    r += 1.1 * Math.exp(-Math.pow(angDiff(theta, 4.40) / 0.35, 2));
+
+    // Inward meanders between groves for dynamic S-curves:
+    r -= 2.8 * Math.exp(-Math.pow(angDiff(theta, 1.67) / 0.48, 2)); // Between Gazebo & Banyan (95°)
+    r -= 2.2 * Math.exp(-Math.pow(angDiff(theta, 4.95) / 0.42, 2)); // Between Mango & Maple (284°)
+    r -= 2.6 * Math.exp(-Math.pow(angDiff(theta, 6.20) / 0.45, 2)); // Between Maple & Gazebo (355°)
+
+    // Multi-frequency sinusoidal waviness (winding, undulating meanders):
+    r += Math.sin(theta * 3 + 0.6) * 1.8;
+    r += Math.sin(theta * 6 - 0.9) * 1.2;
+    r += Math.sin(theta * 9 + 1.4) * 0.55;
+    r += Math.sin(theta * 14 - 0.7) * 0.25;
+
+    return r;
 }
 
 // Measured against the pond scan itself. Its water surface sits at y = -0.45m.
@@ -126,9 +149,13 @@ export function isGroundClear(x, z, margin = 0) {
     const d = Math.hypot(dx, dz);
     if (d < 12.0 + margin) return false;
     if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
+    if (Math.hypot(x - GARDEN_POINTS.MAPLE.x, z - GARDEN_POINTS.MAPLE.z) < 2.4 + margin) return false;
+    if (Math.hypot(x - (-23.8), z - 12.7) < 10.2 + margin) return false; // Banyan trunk & sprawling root spread (1.5x)
+    if (Math.hypot(x - (-7.9), z - (-24.3)) < 2.0 + margin) return false; // Mango trunk
     const theta = Math.atan2(z, x);
     const pathR = pathRadiusAt(theta);
-    if (Math.abs(Math.hypot(x, z) - pathR) < PATH_WIDTH * 0.5 + 0.3 + margin) return false;
+    const currentWidth = pathWidthAt(theta);
+    if (Math.abs(Math.hypot(x, z) - pathR) < currentWidth * 0.5 + 0.35 + margin) return false;
     return true;
 }
 
@@ -216,10 +243,10 @@ export function loadGarden(loadingManager) {
             denseGrass: denseGrassGltf,
             groundTexture: floorResult.groundTexture,
             groundNormal: floorResult.groundNormal,
-            update: (time, delta) => {
+            update: (time, delta, lightCtx) => {
                 updateWindEnvelope(windEnv, delta, time);
                 for (let i = 0; i < updateables.length; i++) {
-                    updateables[i](time, delta);
+                    updateables[i](time, delta, lightCtx);
                 }
             }
         };
@@ -330,7 +357,7 @@ function contactShadowTexture() {
  *
  * @param {number} diameter  world units; sized per-landmark by the caller
  */
-function createContactShadow(diameter) {
+function createContactShadow(diameter, y = 0.03) {
     const decal = new THREE.Mesh(
         new THREE.PlaneGeometry(diameter, diameter),
         new THREE.MeshBasicMaterial({
@@ -343,8 +370,8 @@ function createContactShadow(diameter) {
         })
     );
     decal.rotation.x = -Math.PI / 2;
-    decal.position.y = 0.03;   // above the grass root line, below the pathway ribbon
-    decal.renderOrder = 2;
+    decal.position.y = y;   // above the ground line, below root flares and pathway ribbon
+    decal.renderOrder = 1;
     return decal;
 }
 
@@ -539,6 +566,17 @@ function setupGazebo(gltf) {
 // ---------------------------------------------------------------------------
 // 3. Pond with Waterfalls Setup (Top-Left)
 // ---------------------------------------------------------------------------
+const C_WATER_DAY = new THREE.Color(0x164c42);       // deep natural wetland pond emerald
+const C_WATER_DUSK = new THREE.Color(0x4a2416);      // sunset fiery bronze-amber reflection
+const C_WATER_DAWN = new THREE.Color(0x3e281c);      // dawn rosy amber reflection
+const C_WATER_NIGHT = new THREE.Color(0x09141e);     // starlit deep obsidian indigo pool
+
+const C_CASCADE_DAY = new THREE.Color(0x4aa697);     // clear cascading stream turquoise
+const C_CASCADE_DUSK = new THREE.Color(0x8a4430);    // warm sunset spray
+const C_CASCADE_DAWN = new THREE.Color(0x844a34);    // dawn spray
+const C_CASCADE_NIGHT = new THREE.Color(0x1a2a38);   // moonlight waterfall
+const _scratchWaterCol = new THREE.Color();
+
 function setupPond(gltf) {
     const group = new THREE.Group();
     group.name = 'PondWithWaterfalls';
@@ -547,9 +585,21 @@ function setupPond(gltf) {
     let waterMeshList = [];
     const skipMerge = new Set();   // meshes that keep their own material/shader
     let surfaceWaterMat = null;
+    let cascadeMat = null;
     let pondWaterUniforms = {
         uPondC: { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) },
-        uTime: { value: 0.0 }
+        uTime: { value: 0.0 },
+        uSkyColor: { value: new THREE.Color(0x9ec0e8) },
+        uHorizColor: { value: new THREE.Color(0xd0e0f2) },
+        uSunDir: { value: new THREE.Vector3(0, 1, 0) },
+        uSunColor: { value: new THREE.Color(0xfffaee) },
+        uSunIntensity: { value: 1.0 },
+        uMoonDir: { value: new THREE.Vector3(0, 1, 0) },
+        uMoonColor: { value: new THREE.Color(0xdbe5f3) },
+        uMoonIntensity: { value: 0.5 },
+        uDayWeight: { value: 1.0 },
+        uTwiWeight: { value: 0.0 },
+        uNightWeight: { value: 0.0 }
     };
     let pondCardMat = null;      // shared alpha-cutout variant (vegetation planes)
     let pondSolidMat = null;     // shared opaque variant (scanned rock)
@@ -619,30 +669,50 @@ function setupPond(gltf) {
                     return;
                 }
                 // Cascading waterfalls down the rock mound (Plane.120_water_0, Plane.121_water_0)
-                const cascadeMat = new THREE.MeshStandardMaterial({
-                    color: 0x4aa697,
-                    roughness: 0.22,
-                    metalness: 0.08,
-                    transparent: true,
-                    opacity: 0.85,
-                    depthWrite: false,
-                    side: THREE.DoubleSide
-                });
-                cascadeMat.onBeforeCompile = (shader) => {
-                    shader.uniforms.uTime = pondWaterUniforms.uTime;
-                    shader.vertexShader = 'varying vec3 vWaterW;\n' + shader.vertexShader.replace(
-                        '#include <worldpos_vertex>',
-                        '#include <worldpos_vertex>\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
-                    );
-                    shader.fragmentShader = 'varying vec3 vWaterW;\nuniform float uTime;\n' + shader.fragmentShader.replace(
-                        '#include <opaque_fragment>',
-                        `// Luminous waterfall floor so cascading water never goes black in shadow
-                         outgoingLight = max(outgoingLight, vec3(0.06, 0.13, 0.12));
-                         float foam = sin(vWaterW.y * 14.0 - uTime * 3.5) * 0.5 + 0.5;
-                         outgoingLight += vec3(0.06, 0.10, 0.09) * foam * 0.5;
-                         #include <opaque_fragment>`
-                    );
-                };
+                if (!cascadeMat) {
+                    cascadeMat = new THREE.MeshStandardMaterial({
+                        color: 0x4aa697,
+                        roughness: 0.22,
+                        metalness: 0.08,
+                        transparent: true,
+                        opacity: 0.85,
+                        depthWrite: false,
+                        side: THREE.DoubleSide
+                    });
+                    cascadeMat.onBeforeCompile = (shader) => {
+                        shader.uniforms.uTime = pondWaterUniforms.uTime;
+                        shader.uniforms.uDayWeight = pondWaterUniforms.uDayWeight;
+                        shader.uniforms.uTwiWeight = pondWaterUniforms.uTwiWeight;
+                        shader.uniforms.uNightWeight = pondWaterUniforms.uNightWeight;
+                        shader.uniforms.uSunColor = pondWaterUniforms.uSunColor;
+                        shader.vertexShader = 'varying vec3 vWaterW;\n' + shader.vertexShader.replace(
+                            '#include <worldpos_vertex>',
+                            '#include <worldpos_vertex>\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
+                        );
+                        shader.fragmentShader = `
+varying vec3 vWaterW;
+uniform float uTime;
+uniform float uDayWeight;
+uniform float uTwiWeight;
+uniform float uNightWeight;
+uniform vec3 uSunColor;
+` + shader.fragmentShader.replace(
+                            '#include <opaque_fragment>',
+                            `// Luminous waterfall floor reacting to day/twilight/night
+                             vec3 dayWater = vec3(0.05, 0.11, 0.10);
+                             vec3 twiWater = vec3(0.08, 0.04, 0.03);
+                             vec3 nightWater = vec3(0.010, 0.018, 0.026);
+                             vec3 cascadeFloor = dayWater * uDayWeight + twiWater * uTwiWeight + nightWater * uNightWeight;
+                             outgoingLight = max(outgoingLight, cascadeFloor);
+
+                             float foam = sin(vWaterW.y * 14.0 - uTime * 3.5) * 0.5 + 0.5;
+                             vec3 foamColor = mix(vec3(0.08, 0.12, 0.11), uSunColor * 0.14, uTwiWeight);
+                             foamColor = mix(foamColor, vec3(0.025, 0.045, 0.065), uNightWeight);
+                             outgoingLight += foamColor * foam * 0.5;
+                             #include <opaque_fragment>`
+                        );
+                    };
+                }
                 child.material = cascadeMat;
                 child.receiveShadow = true;
                 child.renderOrder = 3;
@@ -849,26 +919,70 @@ function setupPond(gltf) {
     surfaceWaterMat.onBeforeCompile = (shader) => {
         shader.uniforms.uPondC = pondWaterUniforms.uPondC;
         shader.uniforms.uTime = pondWaterUniforms.uTime;
+        shader.uniforms.uSkyColor = pondWaterUniforms.uSkyColor;
+        shader.uniforms.uHorizColor = pondWaterUniforms.uHorizColor;
+        shader.uniforms.uSunDir = pondWaterUniforms.uSunDir;
+        shader.uniforms.uSunColor = pondWaterUniforms.uSunColor;
+        shader.uniforms.uSunIntensity = pondWaterUniforms.uSunIntensity;
+        shader.uniforms.uMoonDir = pondWaterUniforms.uMoonDir;
+        shader.uniforms.uMoonColor = pondWaterUniforms.uMoonColor;
+        shader.uniforms.uMoonIntensity = pondWaterUniforms.uMoonIntensity;
+        shader.uniforms.uDayWeight = pondWaterUniforms.uDayWeight;
+        shader.uniforms.uTwiWeight = pondWaterUniforms.uTwiWeight;
+        shader.uniforms.uNightWeight = pondWaterUniforms.uNightWeight;
         shader.vertexShader = 'varying vec3 vWaterW;\nvarying vec3 vWaterLocal;\n' + shader.vertexShader.replace(
             '#include <worldpos_vertex>',
             '#include <worldpos_vertex>\n vWaterLocal = position;\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
         );
-        shader.fragmentShader = 'varying vec3 vWaterW;\nvarying vec3 vWaterLocal;\nuniform vec2 uPondC;\nuniform float uTime;\n' + shader.fragmentShader.replace(
+        shader.fragmentShader = `
+varying vec3 vWaterW;
+varying vec3 vWaterLocal;
+uniform vec2 uPondC;
+uniform float uTime;
+uniform vec3 uSkyColor;
+uniform vec3 uHorizColor;
+uniform vec3 uSunDir;
+uniform vec3 uSunColor;
+uniform float uSunIntensity;
+uniform vec3 uMoonDir;
+uniform vec3 uMoonColor;
+uniform float uMoonIntensity;
+uniform float uDayWeight;
+uniform float uTwiWeight;
+uniform float uNightWeight;
+` + shader.fragmentShader.replace(
             '#include <opaque_fragment>',
-            `// Minimum luminous floor so water never turns into a black hole in shadow or night
-             vec3 waterFloor = vec3(0.045, 0.095, 0.088);
+            `// Ambient water floor adapting to celestial diurnal cycle
+             vec3 dayFloor = vec3(0.045, 0.088, 0.082);
+             vec3 twiFloor = vec3(0.062, 0.035, 0.022);
+             vec3 nightFloor = vec3(0.008, 0.014, 0.022);
+             vec3 waterFloor = dayFloor * uDayWeight + twiFloor * uTwiWeight + nightFloor * uNightWeight;
              outgoingLight = max(outgoingLight, waterFloor);
 
-             // Gentle natural water drift and surface shimmer
-             float wave1 = sin(vWaterW.x * 2.2 + vWaterW.z * 1.8 + uTime * 0.7);
-             float wave2 = cos(vWaterW.x * 1.5 - vWaterW.z * 2.1 + uTime * 0.5);
-             float ripple = (wave1 + wave2) * 0.5;
-             outgoingLight += vec3(0.015, 0.028, 0.024) * (ripple * 0.5 + 0.5);
+             // Multi-frequency natural water drift and surface shimmer
+             float wave1 = sin(vWaterW.x * 2.6 + vWaterW.z * 2.1 + uTime * 0.85);
+             float wave2 = cos(vWaterW.x * 1.8 - vWaterW.z * 2.4 + uTime * 0.65);
+             float wave3 = sin(vWaterW.x * 4.5 + vWaterW.z * 3.8 - uTime * 1.25) * 0.5;
+             float ripple = (wave1 + wave2 + wave3) * 0.4;
+             vec3 shimmerCol = mix(uHorizColor, uSkyColor, 0.4) * 0.12;
+             outgoingLight += shimmerCol * (ripple * 0.5 + 0.5);
 
-             // Soft sky fresnel reflectance at grazing camera angles
+             // Real sky reflection via Fresnel angle
              vec3 viewDir = normalize(cameraPosition - vWaterW);
-             float fresnel = pow(1.0 - max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0), 3.5);
-             outgoingLight += vec3(0.05, 0.11, 0.13) * fresnel * 0.45;
+             float NdotV = max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0);
+             float fresnel = pow(1.0 - NdotV, 3.2);
+             vec3 skyReflect = mix(uHorizColor, uSkyColor, clamp(NdotV * 1.5, 0.0, 1.0));
+             outgoingLight += skyReflect * (fresnel * 0.75);
+
+             // Celestial specular sheen (Sun rays during day/sunset, Moon silver at night)
+             vec3 lightDir = uDayWeight > 0.05 ? normalize(uSunDir) : normalize(uMoonDir);
+             vec3 lightCol = uDayWeight > 0.05 ? uSunColor : uMoonColor;
+             float lightInt = uDayWeight > 0.05 ? uSunIntensity : uMoonIntensity;
+             vec3 perturbedNorm = normalize(vec3(-ripple * 0.06, 1.0, -ripple * 0.06));
+             vec3 halfVec = normalize(lightDir + viewDir);
+             float spec = pow(max(dot(perturbedNorm, halfVec), 0.0), 36.0);
+             outgoingLight += lightCol * (spec * 0.35 * clamp(lightInt * 0.25, 0.0, 1.0));
+
              #include <opaque_fragment>
 
              // Soft shoreline feathering so the water smoothly blends into the bank with zero hard edge
@@ -922,8 +1036,45 @@ function setupPond(gltf) {
         console.info(`[garden] single pond merged ${stats.removed} meshes into ${stats.merged} (kept ${stats.remaining} unmerged)`);
     }
 
-    const update = (time) => {
-        if (pondWaterUniforms) pondWaterUniforms.uTime.value = time;
+    const update = (time, delta, lightCtx) => {
+        if (pondWaterUniforms) {
+            pondWaterUniforms.uTime.value = time;
+            if (lightCtx) {
+                if (lightCtx.skyReflect) pondWaterUniforms.uSkyColor.value.copy(lightCtx.skyReflect);
+                if (lightCtx.horizonReflect) pondWaterUniforms.uHorizColor.value.copy(lightCtx.horizonReflect);
+                if (lightCtx.sunDir) pondWaterUniforms.uSunDir.value.copy(lightCtx.sunDir).normalize();
+                if (lightCtx.sunColor) pondWaterUniforms.uSunColor.value.copy(lightCtx.sunColor);
+                if (lightCtx.sunIntensity !== undefined) pondWaterUniforms.uSunIntensity.value = lightCtx.sunIntensity;
+                if (lightCtx.moonDir) pondWaterUniforms.uMoonDir.value.copy(lightCtx.moonDir).normalize();
+                if (lightCtx.moonColor) pondWaterUniforms.uMoonColor.value.copy(lightCtx.moonColor);
+                if (lightCtx.moonIntensity !== undefined) pondWaterUniforms.uMoonIntensity.value = lightCtx.moonIntensity;
+                if (lightCtx.dayWeight !== undefined) pondWaterUniforms.uDayWeight.value = lightCtx.dayWeight;
+                if (lightCtx.twiWeight !== undefined) pondWaterUniforms.uTwiWeight.value = lightCtx.twiWeight;
+                if (lightCtx.nightWeight !== undefined) pondWaterUniforms.uNightWeight.value = lightCtx.nightWeight;
+
+                const dayW = lightCtx.dayWeight ?? 1;
+                const twiW = lightCtx.twiWeight ?? 0;
+                const nightW = lightCtx.nightWeight ?? 0;
+                const twiWater = lightCtx.isMorning ? C_WATER_DAWN : C_WATER_DUSK;
+                const twiCascade = lightCtx.isMorning ? C_CASCADE_DAWN : C_CASCADE_DUSK;
+
+                if (surfaceWaterMat) {
+                    _scratchWaterCol.set(0, 0, 0)
+                        .addScaledVector(C_WATER_DAY, dayW)
+                        .addScaledVector(twiWater, twiW)
+                        .addScaledVector(C_WATER_NIGHT, nightW);
+                    surfaceWaterMat.color.copy(_scratchWaterCol);
+                    surfaceWaterMat.roughness = THREE.MathUtils.lerp(0.16, 0.11, nightW);
+                }
+                if (cascadeMat) {
+                    _scratchWaterCol.set(0, 0, 0)
+                        .addScaledVector(C_CASCADE_DAY, dayW)
+                        .addScaledVector(twiCascade, twiW)
+                        .addScaledVector(C_CASCADE_NIGHT, nightW);
+                    cascadeMat.color.copy(_scratchWaterCol);
+                }
+            }
+        }
         for (let i = 0; i < waterMeshList.length; i++) {
             const m = waterMeshList[i];
             if (!m.material) continue;
@@ -977,11 +1128,11 @@ function setupPond(gltf) {
 // (11.2) stays the centrepiece by position rather than by size.
 const BACKGROUND_TREES = [
     {
-        kind: 'banyan', deg: 152, r: 27.0, height: 17.5, rotY: 0.9,
+        kind: 'banyan', deg: 152, r: 27.0, height: 26.25, rotY: 0.9, yOffset: 0.015,
         id: 'banyan', title: 'Chinese Banyan', meta: 'Ficus microcarpa · Click to visit'
     },
     {
-        kind: 'mango', deg: 252, r: 25.5, height: 15.5, rotY: 2.4,
+        kind: 'mango', deg: 252, r: 25.5, height: 15.5, rotY: 2.4, yOffset: -0.08,
         id: 'mango', title: 'Mango Tree', meta: 'Mangifera indica · Click to visit'
     }
 ];
@@ -1004,10 +1155,20 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
             if (!child.isMesh || !child.material) return;
             const wantsWind = isFoliageForWind(child, child.material);
             enhanceFoliageMaterial(child.material, child, 0.35);
-            // Gentler than the centrepiece gulmohar: these read at distance,
-            // where a large sway is what makes background foliage look like
-            // it is boiling rather than breathing.
-            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.032, speedMult: 0.7 });
+            if (wantsWind) {
+                if (kind === 'mango') {
+                    const isFruit = /004|fruit|mango/i.test(child.name || '') || /004|fruit|mango/i.test(child.material.name || '');
+                    if (isFruit) {
+                        // Mango fruits: pendular sway with gentle inertia and subtle bob
+                        injectFoliageWind(child, child.material, { swayFraction: 0.054, speedMult: 0.85, flutterMult: 0.25, isFruit: true });
+                    } else {
+                        // Mango leaves: graceful canopy sway and delicate rustling flutter
+                        injectFoliageWind(child, child.material, { swayFraction: 0.060, speedMult: 0.80, flutterMult: 1.0, isFruit: false });
+                    }
+                } else {
+                    injectFoliageWind(child, child.material, { swayFraction: 0.042, speedMult: 0.75, flutterMult: 0.8, isFruit: false });
+                }
+            }
         });
         const box = new THREE.Box3().setFromObject(proto);
         prepared[kind] = { proto, box };
@@ -1022,12 +1183,10 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
 
         const model = entry.proto.clone(true);
         model.scale.setScalar(scaleFactor);
-        // Sunk slightly so the root flare meets the lawn rather than perching
-        // on it, matching how the maple is seated.
-        // Just enough to close the contact seam, not enough to bury the
-        // root flare -- only the maple, whose whole exposed root ball sits
-        // proud of the soil, wants a deep sink.
-        model.position.set(-centre.x * scaleFactor, -entry.box.min.y * scaleFactor - 0.08, -centre.z * scaleFactor);
+        // Banyan root spread sits gently atop the ground surface (+0.015) so its expansive
+        // root network is fully exposed, while mango is sunk slightly (-0.08) to meet lawn.
+        const yOff = spec.yOffset !== undefined ? spec.yOffset : -0.08;
+        model.position.set(-centre.x * scaleFactor, -entry.box.min.y * scaleFactor + yOff, -centre.z * scaleFactor);
 
         const holder = new THREE.Group();
         holder.name = `${spec.kind}_${i}`;
@@ -1036,7 +1195,7 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         holder.position.set(wx, 0, wz);
         holder.rotation.y = spec.rotY;
         holder.add(model);
-        holder.add(createContactShadow(spec.height * 0.62));
+        holder.add(createContactShadow(spec.height * 0.62, spec.kind === 'banyan' ? 0.005 : 0.03));
         group.add(holder);
 
         // Hoverable and clickable, same machinery as the four original
@@ -1055,6 +1214,8 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         // the tree with the rest of the garden behind it, never through it.
         const inward = new THREE.Vector3(-wx, 0, -wz).normalize();
         const dist = spec.height * 1.15;
+        const camY = spec.kind === 'banyan' ? spec.height * 0.32 : spec.height * 0.52;
+        const lookY = spec.kind === 'banyan' ? spec.height * 0.16 : spec.height * 0.42;
         interactives.push({
             object: hitbox,
             targetGroup: holder,
@@ -1065,8 +1226,8 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
                 cameraTarget: {
                     pos: new THREE.Vector3(wx, 0, wz)
                         .addScaledVector(inward, dist)
-                        .setY(spec.height * 0.52),
-                    lookAt: new THREE.Vector3(wx, spec.height * 0.42, wz)
+                        .setY(camY),
+                    lookAt: new THREE.Vector3(wx, lookY, wz)
                 }
             }
         });
@@ -1423,7 +1584,7 @@ function createFlowerBeds() {
             // sin(theta*4) has swung positive, so the lobes read as fuller beds.
             const lobe = Math.max(0, Math.sin(theta * 4));
             const pathR = pathRadiusAt(theta);
-            const edge = pathR + PATH_WIDTH * 0.5 + 0.25;
+            const edge = pathR + pathWidthAt(theta) * 0.5 + 0.25;
             const depth = depthRange[0] + Math.random() * (depthRange[1] + lobe * 0.9 - depthRange[0]);
             const r = edge + depth + (Math.random() - 0.5) * radiusJitter;
             const x = Math.cos(theta) * r, z = Math.sin(theta) * r;
@@ -1464,7 +1625,7 @@ function createGardenPathway() {
     group.name = 'GardenPathway';
 
     const curvePoints = [];
-    const segments = 160;
+    const segments = 240;
 
     for (let i = 0; i <= segments; i++) {
         const theta = (i / segments) * Math.PI * 2;
@@ -1476,9 +1637,8 @@ function createGardenPathway() {
     }
 
     const curve = new THREE.CatmullRomCurve3(curvePoints, true);
-    const pathWidth = 2.4;
 
-    const pathSegments = 240;
+    const pathSegments = 360;
     const vertices = [];
     const uvs = [];
     const indices = [];
@@ -1487,26 +1647,26 @@ function createGardenPathway() {
     for (let i = 0; i <= pathSegments; i++) {
         const t = i / pathSegments;
         const point = curve.getPointAt(t);
+        const theta = Math.atan2(point.z, point.x);
+        const w = pathWidthAt(theta);
         const tangent = curve.getTangentAt(t).normalize();
         const normal = new THREE.Vector3().crossVectors(tangent, up).normalize();
 
-        const pLeft = point.clone().addScaledVector(normal, -pathWidth * 0.5);
-        const pRight = point.clone().addScaledVector(normal, pathWidth * 0.5);
+        const pLeft = point.clone().addScaledVector(normal, -w * 0.5);
+        const pRight = point.clone().addScaledVector(normal, w * 0.5);
 
-        // The curve already carries the ground height; flattening both rails
-        // to a constant y here is what left the path hovering over any relief
-        // instead of lying on it.
-        pLeft.y = point.y + 0.007;
-        pRight.y = point.y + 0.007;
+        // Conform both rails to the local ground height field
+        pLeft.y = groundHeightAt(pLeft.x, pLeft.z) + 0.025;
+        pRight.y = groundHeightAt(pRight.x, pRight.z) + 0.025;
 
         vertices.push(pLeft.x, pLeft.y, pLeft.z);
         vertices.push(pRight.x, pRight.y, pRight.z);
 
-        // Integer V repeat, so the tiling meets itself exactly where the loop
-        // closes at t=0/1 instead of leaving a visible seam there. 26 tiles
-        // over the loop keeps the stones near their authored aspect.
-        uvs.push(0, t * 26);
-        uvs.push(1, t * 26);
+        // Integer V repeat, with U proportional to local width so cobblestones
+        // keep their natural size across the widened gazebo plaza.
+        const uSpan = w / PATH_WIDTH;
+        uvs.push(0, t * 38);
+        uvs.push(uSpan, t * 38);
 
         if (i < pathSegments) {
             const i1 = i * 2;
@@ -1548,9 +1708,10 @@ function createGardenPathway() {
     const pathMat = new THREE.MeshStandardMaterial({
         map: pathTex,
         normalMap: pathNormal,
-        normalScale: new THREE.Vector2(0.7, 0.7),
-        roughness: 0.92,
-        metalness: 0.03,
+        normalScale: new THREE.Vector2(0.85, 0.85),
+        color: 0xf6f0e6,
+        roughness: 0.88,
+        metalness: 0.02,
         polygonOffset: true,
         polygonOffsetFactor: -1,
         polygonOffsetUnits: -1

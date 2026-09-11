@@ -14,6 +14,7 @@ import { createGrassField } from './src/scene/grass.js';
 import { loadPlacements, mountAllPaintings } from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
+import { FPSNavigator } from './src/controls/fpsNavigator.js';
 
 // ---------------------------------------------------------------------------
 // Module-scope scratch objects and palettes.
@@ -26,13 +27,16 @@ import { getAssetUrl } from './src/utils/paths.js';
 const _sunDirScratch = new THREE.Vector3();
 const _moonDirScratch = new THREE.Vector3();
 const _skyColScratch = new THREE.Color();
+const _midColScratch = new THREE.Color();
 const _horizColScratch = new THREE.Color();
 const _horizOppScratch = new THREE.Color();
 const _twiZenith = new THREE.Color();
+const _twiMid = new THREE.Color();
 const _twiHorizon = new THREE.Color();
 const _twiHorizonOpp = new THREE.Color();
 const _hemiSkyScratch = new THREE.Color();
 const _hemiGndScratch = new THREE.Color();
+const _ambientColScratch = new THREE.Color();
 
 function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     out.r = c1.r * w1 + c2.r * w2 + c3.r * w3;
@@ -41,40 +45,51 @@ function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     return out;
 }
 
-const C_DAY_ZENITH = new THREE.Color(0xdfe9ea);        // near-white, barest sky tint -- afternoon reads white
-const C_DAY_HORIZON = new THREE.Color(0xf6f4ec);       // white with a whisper of warmth at the rim
-const C_DAY_HORIZON_OPP = new THREE.Color(0xeceae2);
-const C_DAWN_ZENITH = new THREE.Color(0xb9c6d6);       // sky still cool overhead
-const C_DAWN_HORIZON = new THREE.Color(0xffcf6b);      // golden yellow
-const C_DAWN_HORIZON_OPP = new THREE.Color(0xc7cdd6);
-const C_DUSK_ZENITH = new THREE.Color(0xaa9fb0);       // cooling toward night overhead
-const C_DUSK_HORIZON = new THREE.Color(0xf5b942);      // deeper gold than dawn -- late-day warmth
-const C_DUSK_HORIZON_OPP = new THREE.Color(0xb2a8bd);
-const C_NIGHT_ZENITH = new THREE.Color(0x2f384d);      // deep indigo, never black
-const C_NIGHT_HORIZON = new THREE.Color(0x424d5f);
+// Sky Palette - rich, chromatic natural atmospheric gradients (no milky white haze)
+const C_DAY_ZENITH = new THREE.Color(0x1858a2);        // deep, rich, vivid azure/cobalt sky
+const C_DAY_MID = new THREE.Color(0x448ad6);           // crisp, vivid daytime cerulean
+const C_DAY_HORIZON = new THREE.Color(0x8ec2ec);       // clean, clear sky-blue horizon
+const C_DAY_HORIZON_OPP = new THREE.Color(0x7eb5e6);   // crisp clear horizon
 
-const C_SUN_HIGH = new THREE.Color(0xfffef8);          // near-white at height
-const C_SUN_LOW = new THREE.Color(0xffc966);           // golden yellow low in the sky
-const C_SUNLIGHT_HIGH = new THREE.Color(0xfffaf0);     // white afternoon light
-const C_SUNLIGHT_LOW = new THREE.Color(0xffc35c);      // dusk: rich golden yellow
-const C_SUNLIGHT_DAWN = new THREE.Color(0xffd98f);     // dawn: lighter golden yellow
-const C_MOON_HIGH = new THREE.Color(0xe6edf5);
-const C_MOON_LOW = new THREE.Color(0xc2d2e2);
-const C_MOON_EMISSIVE = new THREE.Color(0xe0e8f2);
-const C_MOONLIGHT_HIGH = new THREE.Color(0xd8e4f2);
-const C_MOONLIGHT_LOW = new THREE.Color(0xc6d6e8);
+const C_DAWN_ZENITH = new THREE.Color(0x182648);       // deep crisp morning navy
+const C_DAWN_MID = new THREE.Color(0x7e2844);          // rich crimson-rose dawn mid-sky
+const C_DAWN_HORIZON = new THREE.Color(0xde2408);      // fiery crimson red sunrise horizon
+const C_DAWN_HORIZON_OPP = new THREE.Color(0x3a2444);  // deep twilight counter-glow
 
-const C_HEMI_NIGHT = new THREE.Color(0x54648a);
-const C_HEMI_DAWN = new THREE.Color(0xf5cf8f);
-const C_HEMI_DAY = new THREE.Color(0xfefcf5);
-const C_HEMI_GROUND_NIGHT = new THREE.Color(0x2c3444);
-const C_HEMI_GROUND_DAWN = new THREE.Color(0x5b4a44);
-const C_HEMI_GROUND_DAY = new THREE.Color(0x6e6a52);
+const C_DUSK_ZENITH = new THREE.Color(0x16183e);       // deep velvet twilight indigo
+const C_DUSK_MID = new THREE.Color(0x8a1834);          // intense burning crimson-magenta
+const C_DUSK_HORIZON = new THREE.Color(0xd21804);      // fiery deep crimson red sunset horizon
+const C_DUSK_HORIZON_OPP = new THREE.Color(0x3e1c3e);  // rich dusky amethyst
 
-const C_FLOOR_NOON = new THREE.Color(0xfaf6ec);
-const C_FLOOR_TWILIGHT = new THREE.Color(0xcbc6d2);
-const C_FLOOR_MIDNIGHT = new THREE.Color(0xa3afc2);   // the biggest 'not black at night' lever
-const C_FLOOR_DAWN = new THREE.Color(0xf3decb);
+const C_NIGHT_ZENITH = new THREE.Color(0x0a101e);      // deep velvet midnight indigo
+const C_NIGHT_MID = new THREE.Color(0x121a2c);
+const C_NIGHT_HORIZON = new THREE.Color(0x1a2436);
+
+const C_SUN_HIGH = new THREE.Color(0xfffae6);          // radiant warm golden daylight
+const C_SUN_LOW = new THREE.Color(0xd81202);           // fiery deep crimson red sun disc at sunset
+const C_SUN_DAWN = new THREE.Color(0xeb2406);          // burning ruby red sun disc at sunrise
+const C_SUNLIGHT_HIGH = new THREE.Color(0xfffaee);     // gentle warm white sunlight
+const C_SUNLIGHT_LOW = new THREE.Color(0xff3600);      // fiery sunset red-orange illumination
+const C_SUNLIGHT_DAWN = new THREE.Color(0xff4c14);     // radiant dawn vermilion illumination
+const C_MOON_HIGH = new THREE.Color(0xe8eef7);
+const C_MOON_LOW = new THREE.Color(0xc8d6e6);
+const C_MOON_EMISSIVE = new THREE.Color(0xe2eaf4);
+const C_MOONLIGHT_HIGH = new THREE.Color(0xdbe5f3);
+const C_MOONLIGHT_LOW = new THREE.Color(0xcbd9ea);
+
+const C_HEMI_NIGHT = new THREE.Color(0x38486e);
+const C_HEMI_DUSK = new THREE.Color(0xd83818);         // burning sunset crimson sky ambient
+const C_HEMI_GROUND_DUSK = new THREE.Color(0x6a3824);  // warm earthen sunset ground reflection
+const C_HEMI_DAWN = new THREE.Color(0xe84a20);         // radiant dawn vermilion sky ambient
+const C_HEMI_GROUND_DAWN = new THREE.Color(0x6e4228);  // warm dawn ground reflection
+const C_HEMI_DAY = new THREE.Color(0xb0d2f8);
+const C_HEMI_GROUND_NIGHT = new THREE.Color(0x283244);
+const C_HEMI_GROUND_DAY = new THREE.Color(0x6a7d54);
+
+const C_FLOOR_NOON = new THREE.Color(0x486e30);      // lush verdant lawn turf base
+const C_FLOOR_TWILIGHT = new THREE.Color(0x76381c);   // rich warm sunset earth turf
+const C_FLOOR_MIDNIGHT = new THREE.Color(0x28382c);   // deep twilight forest floor
+const C_FLOOR_DAWN = new THREE.Color(0x6e4222);       // fresh early morning turf
 
 const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
@@ -171,7 +186,7 @@ class GulmoharApp {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.pixelRatioCap));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 1.08;
+        this.renderer.toneMappingExposure = 1.15;
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = QUALITY.shadowType;
@@ -242,7 +257,7 @@ class GulmoharApp {
             }, 2500);
         });
 
-        this.scene.fog = new THREE.FogExp2(0xcbdcdd, 0.0032);   // was 0.005 -- crept in well before the ground's own edge fade, thickening the corners early
+        this.scene.fog = new THREE.FogExp2(0x8ec2ec, 0.0018);   // light atmospheric depth without milky white washout
 
         this.setupLighting();
         this.setupEnvironment();
@@ -266,11 +281,25 @@ class GulmoharApp {
         });
         window.addEventListener('pointermove', (e) => this.onPointerMove(e), { passive: true });
 
+        this.navMode = 'orbit'; // 'orbit' | 'walk'
+        this.fpsNavigator = new FPSNavigator(this.camera, this.renderer.domElement, {
+            onModeChange: (isWalking) => {
+                if (isWalking && this.navMode !== 'walk') this.setNavMode('walk');
+            }
+        });
+
         // Home is now only ever explicit, since a missed click no longer does
         // it. Escape is the keyboard route; the dock's Home button is the
         // pointer one.
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') { this.resetScene(); this.resetUIHideTimer(); }
+            if (e.key === 'Escape') {
+                if (this.navMode === 'walk') {
+                    this.setNavMode('orbit');
+                } else {
+                    this.resetScene();
+                }
+                this.resetUIHideTimer();
+            }
         });
 
         let startX = 0, startY = 0, startTime = 0;
@@ -346,12 +375,24 @@ class GulmoharApp {
         });
 
         const sunTex = this.generateSunTexture();
-        this.sunMesh = new THREE.Mesh(new THREE.SphereGeometry(44, 32, 32), new THREE.MeshStandardMaterial({
-            map: sunTex, emissiveMap: sunTex, emissive: 0xffe477, emissiveIntensity: 2.2,
-            roughness: 0.85, fog: false, transparent: true
+        this.sunMesh = new THREE.Mesh(new THREE.SphereGeometry(38, 32, 32), new THREE.MeshBasicMaterial({
+            map: sunTex, color: 0xffffff, fog: false, transparent: true, depthWrite: false
         }));
         this.sunMesh.renderOrder = -180;
         this.scene.add(this.sunMesh);
+
+        const sunGlowTex = this.generateSunGlowTexture();
+        const sunGlowMat = new THREE.SpriteMaterial({
+            map: sunGlowTex,
+            color: 0xff4c14,
+            transparent: true,
+            blending: THREE.NormalBlending,
+            depthWrite: false,
+            fog: false
+        });
+        this.sunGlow = new THREE.Sprite(sunGlowMat);
+        this.sunGlow.scale.set(90, 90, 1);
+        this.sunMesh.add(this.sunGlow);
 
         const moonTex = this.generateMoonTexture();
         this.moonMesh = new THREE.Mesh(new THREE.SphereGeometry(30, 32, 32), new THREE.MeshStandardMaterial({
@@ -362,24 +403,31 @@ class GulmoharApp {
         this.scene.add(this.moonMesh);
     }
 
-    // A flat disc reads as a hole punched in the sky; a gradient with a little
-    // turbulence reads as a body.
     generateSunTexture() {
         const canvas = document.createElement('canvas');
-        canvas.width = 512; canvas.height = 256;
+        canvas.width = 256; canvas.height = 256;
         const ctx = canvas.getContext('2d');
-        const grad = ctx.createLinearGradient(0, 0, 0, 256);
-        grad.addColorStop(0, '#fffbeb');
-        grad.addColorStop(0.4, '#ffe67c');
-        grad.addColorStop(1, '#ffb833');
+        const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0, '#ffffff');
+        grad.addColorStop(0.85, '#ffffff');
+        grad.addColorStop(0.96, 'rgba(255, 255, 255, 0.85)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
         ctx.fillStyle = grad;
-        ctx.fillRect(0, 0, 512, 256);
-        for (let i = 0; i < 200; i++) {
-            ctx.fillStyle = `rgba(255,255,255,${Math.random() * 0.15})`;
-            ctx.beginPath();
-            ctx.arc(Math.random() * 512, Math.random() * 256, Math.random() * 14, 0, Math.PI * 2);
-            ctx.fill();
-        }
+        ctx.fillRect(0, 0, 256, 256);
+        return new THREE.CanvasTexture(canvas);
+    }
+
+    generateSunGlowTexture() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256; canvas.height = 256;
+        const ctx = canvas.getContext('2d');
+        const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+        grad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+        grad.addColorStop(0.25, 'rgba(255, 255, 255, 0.40)');
+        grad.addColorStop(0.65, 'rgba(255, 255, 255, 0.08)');
+        grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, 256, 256);
         return new THREE.CanvasTexture(canvas);
     }
 
@@ -520,14 +568,14 @@ class GulmoharApp {
                  // varies HOW green each area gets, so it reads as patchy turf
                  // over worn earth instead of one flat wash of colour.
                  float groundLum = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-                 vec3 greened = groundLum * vec3(0.60, 1.08, 0.45);
+                 vec3 greened = groundLum * vec3(0.70, 0.98, 0.62);
                  // NB: not "patch" -- that is a reserved word in GLSL ES 3.0
                  // (tessellation), and naming it that failed the whole ground
                  // shader to compile, which silently dropped the entire ground
                  // plane and left the sky dome showing below the horizon.
                  float turfPatch = sin(vGroundWorldPos.x * 0.055 + 0.6) * sin(vGroundWorldPos.z * 0.047 - 1.2)
                                  + sin(vGroundWorldPos.x * 0.021 - 1.7) * sin(vGroundWorldPos.z * 0.019 + 2.2) * 0.5;
-                 gl_FragColor.rgb = mix(gl_FragColor.rgb, greened, clamp(0.62 + turfPatch * 0.22, 0.30, 0.88));
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, greened, clamp(0.58 + turfPatch * 0.20, 0.28, 0.82));
 
                  // Below the waterline the ground is a pond bed, not lawn --
                  // without this you see bright grass straight through the
@@ -630,29 +678,23 @@ class GulmoharApp {
             // tier's count; the adaptive loop lowers each InstancedMesh's
             // `count` at runtime, which Three treats as a draw range, so it
             // costs no reallocation and no matrix re-upload.
-            this.grass = createGrassField(garden.grassCards, QUALITY.grassRadius, QUALITY.grassCount);
+            // Realtime grass from realtime_grass.glb is the primary dense ground cover:
+            this.grass = createGrassField(garden.grassCards, QUALITY.grassRadius, QUALITY.grassCount, {
+                targetHeight: 0.38, name: 'RealtimeGrassField'
+            });
             this.scene.add(this.grass);
 
-            // A second, much sparser layer of larger vegetation clumps from
-            // grass_vegitation_mix.glb. These are ~380 triangles each rather
-            // than 6, so they are scattered in the low hundreds purely to
-            // break up the uniformity of the grass -- the mix's other meshes
-            // (2.7k and 4.1k tris) were left behind as far too heavy to
-            // instance at any useful density.
+            // A much sparser secondary accent layer of vegetation clumps from grass_vegitation_mix.glb
             this.vegClumps = createGrassField(
                 garden.vegClumps, QUALITY.grassRadius, QUALITY.vegClumpCount,
-                { targetHeight: 0.62, name: 'VegetationClumps', clearMargin: 0.4 }
+                { targetHeight: 0.45, name: 'VegetationClumps', clearMargin: 0.5 }
             );
             this.scene.add(this.vegClumps);
 
-            // The mix's heavy clumps -- 2.7k and 4.1k triangles each, versus 6
-            // for a grass card. Far too expensive to scatter at any density,
-            // but a few dozen read as thick established planting and give the
-            // lawn somewhere to build up to. Kept off the path with a wider
-            // clear margin so they never swallow it.
+            // Very rare heavy clumps from the mix, kept to a small accent count away from pathways
             this.denseGrass = createGrassField(
-                garden.denseGrass, QUALITY.grassRadius * 0.82, QUALITY.denseGrassCount,
-                { targetHeight: 1.15, name: 'DenseGrass', clearMargin: 1.2 }
+                garden.denseGrass, QUALITY.grassRadius * 0.78, QUALITY.denseGrassCount,
+                { targetHeight: 0.70, name: 'DenseGrass', clearMargin: 1.6 }
             );
             this.scene.add(this.denseGrass);
 
@@ -819,25 +861,57 @@ class GulmoharApp {
         // fall back to the landmarks' actual geometry before giving up.
         if (!targetData) targetData = this._pickByGeometry();
 
+        // Find click hit point across garden or ground for fast travel
+        let hitPoint = hits.length ? hits[0].point.clone() : null;
+        if (!hitPoint && this.garden && this.garden.group) {
+            const gHits = this.raycaster.intersectObject(this.garden.group, true);
+            if (gHits.length) hitPoint = gHits[0].point.clone();
+        }
+        if (!hitPoint && this.groundMesh) {
+            const grHits = this.raycaster.intersectObject(this.groundMesh, false);
+            if (grHits.length) hitPoint = grHits[0].point.clone();
+        }
+
+        if (this.navMode === 'walk') {
+            if (targetData && targetData.cameraTarget) {
+                // Landmark or painting fast travel at human eye height
+                const { pos, lookAt } = targetData.cameraTarget;
+                this.fpsNavigator.fastTravelTo(pos.x, pos.z, lookAt, 1.3);
+            } else if (hitPoint) {
+                // Clicked on ground, path, trees, or rocks - fast travel directly there!
+                this.fpsNavigator.fastTravelTo(hitPoint.x, hitPoint.z, hitPoint, 1.2);
+            } else if (!('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+                this.fpsNavigator.requestPointerLock();
+            }
+            this.setUIVisibility(true);
+            return;
+        }
+
         if (targetData && targetData.cameraTarget) {
             const { pos, lookAt } = targetData.cameraTarget;
+            gsap.killTweensOf(this.camera.position);
+            gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, {
                 x: pos.x, y: pos.y, z: pos.z,
-                duration: 2.2,
+                duration: 1.4,
                 ease: 'power2.inOut'
             });
             gsap.to(this.controls.target, {
                 x: lookAt.x, y: lookAt.y, z: lookAt.z,
-                duration: 2.2,
+                duration: 1.4,
+                ease: 'power2.inOut'
+            });
+            this.setUIVisibility(true);
+        } else if (hitPoint) {
+            // In orbit mode, clicking any object fast-travels the orbit focus to that object
+            gsap.killTweensOf(this.controls.target);
+            gsap.to(this.controls.target, {
+                x: hitPoint.x, y: Math.max(1.0, hitPoint.y), z: hitPoint.z,
+                duration: 1.4,
                 ease: 'power2.inOut'
             });
             this.setUIVisibility(true);
         } else {
-            // A click that hits nothing used to fly the camera home. With
-            // hitboxes this coarse that fired constantly -- most "misses" were
-            // aimed at something -- and being yanked back to the gulmohar is a
-            // far worse outcome than a click doing nothing. Going home is now
-            // only ever explicit: the dock's Home button, or Escape.
             this.setUIVisibility(true);
         }
     }
@@ -909,9 +983,62 @@ class GulmoharApp {
     }
 
     resetScene() {
-        gsap.to(this.camera.position, { x: 12.8, y: 3.2, z: 11.2, duration: 1.8, ease: 'power2.inOut' });
-        gsap.to(this.controls.target, { x: 0, y: 2.8, z: 0, duration: 1.8, ease: 'power2.inOut' });
+        if (this.navMode === 'walk') {
+            this.setNavMode('orbit');
+        }
+        if (this._introTl) { this._introTl.kill(); this._introTl = null; }
+        gsap.killTweensOf(this.camera.position);
+        gsap.killTweensOf(this.controls.target);
+
+        this.controls.enabled = true;
+        this.camera.fov = this._fovForAspect(window.innerWidth / window.innerHeight);
+        this.camera.updateProjectionMatrix();
+
+        gsap.to(this.camera.position, {
+            x: 12.8, y: 3.2, z: 11.2,
+            duration: 1.8,
+            ease: 'power2.inOut',
+            onComplete: () => {
+                if (!this.motionPaused && this._introStarted) this.controls.autoRotate = true;
+            }
+        });
+        gsap.to(this.controls.target, {
+            x: 0, y: 2.8, z: 0,
+            duration: 1.8,
+            ease: 'power2.inOut'
+        });
         this.setUIVisibility(true);
+    }
+
+    toggleNavMode() {
+        this.setNavMode(this.navMode === 'walk' ? 'orbit' : 'walk');
+    }
+
+    setNavMode(mode) {
+        if (mode === this.navMode) return;
+        this.navMode = mode;
+
+        if (mode === 'walk') {
+            this.controls.enabled = false;
+            this.controls.autoRotate = false;
+            if (this._introTl) { this._introTl.kill(); this._introTl = null; }
+            gsap.killTweensOf(this.camera.position);
+            gsap.killTweensOf(this.controls.target);
+
+            if (this.walkBtn) this.walkBtn.classList.add('active-walk');
+            // Start walk navigation directly from active camera angle & position
+            this.fpsNavigator.enableFromCamera();
+        } else {
+            this.fpsNavigator.disable();
+            if (this.walkBtn) this.walkBtn.classList.remove('active-walk');
+            this.controls.enabled = true;
+            // Orient OrbitControls target ahead of current camera view so orbit resumes naturally
+            const forward = new THREE.Vector3();
+            this.camera.getWorldDirection(forward);
+            this.controls.target.copy(this.camera.position).addScaledVector(forward, 8.0);
+            this.controls.update();
+        }
+        this.resetUIHideTimer();
     }
 
     // A time-warp tap swaps the whole sky in one step -- easy to miss when
@@ -998,12 +1125,14 @@ class GulmoharApp {
             play: `<svg viewBox="0 0 24 24"><path d="M8 5.4L18.4 12 8 18.6Z"/></svg>`,
             work: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
             about: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6v.6"/></svg>`,
+            walk: `<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2.2"/><path d="M10 8.5l-2.4 6 2 .8 1.8-4.2 1.6 1.6v6.3h2v-7.2l-2.1-2.1.8-2.6a6.5 6.5 0 0 1 4.3 1.9V7.5A8 8 0 0 0 14 6.2z"/></svg>`,
             instagram: `<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>`
         };
         this._motionIcons = { pause: icons.pause, play: icons.play };
 
         const createBtn = (svg, onClick, label = '') => {
             const btn = document.createElement('button');
+            btn.type = 'button';
             btn.className = 'glass-btn';
             btn.innerHTML = svg;
             if (label) {
@@ -1021,14 +1150,45 @@ class GulmoharApp {
                 }, { passive: true });
             }
             if (onClick) {
-                btn.onclick = (e) => { e.stopPropagation(); onClick(); this.resetUIHideTimer(); };
+                let startX = 0, startY = 0, startTime = 0;
+                let triggerFired = false;
+                const fire = (e) => {
+                    if (e) {
+                        e.stopPropagation();
+                    }
+                    onClick();
+                    this.resetUIHideTimer();
+                };
+
+                btn.addEventListener('pointerdown', (e) => {
+                    e.stopPropagation();
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startTime = performance.now();
+                    triggerFired = false;
+                });
+
+                btn.addEventListener('pointerup', (e) => {
+                    e.stopPropagation();
+                    const dist = Math.hypot(e.clientX - startX, e.clientY - startY);
+                    if (dist < 18 && (performance.now() - startTime) < 500) {
+                        triggerFired = true;
+                        fire(e);
+                    }
+                });
+
+                btn.onclick = (e) => {
+                    e.stopPropagation();
+                    if (!triggerFired) fire(e);
+                };
+            } else {
+                btn.addEventListener('pointerdown', e => e.stopPropagation());
+                btn.addEventListener('pointerup', e => e.stopPropagation());
             }
-            btn.addEventListener('pointerdown', e => e.stopPropagation());
-            btn.addEventListener('pointerup', e => e.stopPropagation());
             return btn;
         };
 
-        const HOLD_MS = 200;
+        const HOLD_MS = 420;
         const addLongPress = (btn, onInterval, onTap) => {
             let interval = null, startedAt = 0, isLongPress = false;
             const start = (e) => {
@@ -1073,6 +1233,8 @@ class GulmoharApp {
         };
 
         const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home');
+        const walkBtn = createBtn(icons.walk, () => this.toggleNavMode(), 'Walk / Explore · WASD or touch to navigate');
+        this.walkBtn = walkBtn;
 
         // No onClick: the long-press handler owns both paths, or a tap fires twice.
         const motionBtn = createBtn(icons.pause, null, 'Pause motion · Hold to speed up');
@@ -1080,25 +1242,26 @@ class GulmoharApp {
         this.motionBtn = motionBtn;
         addLongPress(motionBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false);
-            // Cap at -2.2 for smooth, controlled acceleration without disorienting spin
-            this.controls.autoRotateSpeed = Math.max(-2.2, Math.min(-0.35, this.controls.autoRotateSpeed * 1.04));
-            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
-            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
+            this.controls.autoRotate = true;
+            if (this.controls.autoRotateSpeed > -1.2) this.controls.autoRotateSpeed = -1.2;
+            this.controls.autoRotateSpeed = Math.max(-9.0, this.controls.autoRotateSpeed * 1.08);
+            if (this.daySpeed < 0.035) this.daySpeed = 0.035;
+            this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
         }, () => this.setMotionPaused(!this.motionPaused));
 
         const sunBtn = createBtn(icons.day, null, 'Noon · Hold for a time-lapse');
         sunBtn.classList.add('day-btn');
         addLongPress(sunBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
-            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
+            if (this.daySpeed < 0.035) this.daySpeed = 0.035;
+            this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
         }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; });
 
         const spiralBtn = createBtn(icons.spiral, null, 'Time warp · Hold to cycle');
         addLongPress(spiralBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
-            this.daySpeed = Math.min(0.05, this.daySpeed * 1.04);
+            if (this.daySpeed < 0.035) this.daySpeed = 0.035;
+            this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
         }, () => {
             this.sunAngle = (this.sunAngle + Math.PI / 12) % (Math.PI * 2);
             this.daySpeed = 0;
@@ -1109,8 +1272,8 @@ class GulmoharApp {
         moonBtn.classList.add('night-btn');
         addLongPress(moonBtn, () => {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.008) this.daySpeed = 0.008;
-            this.daySpeed = Math.min(0.045, this.daySpeed * 1.04);
+            if (this.daySpeed < 0.035) this.daySpeed = 0.035;
+            this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
         }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; });
 
         // The routes to the flat pages also exist in the always-visible corner
@@ -1118,7 +1281,7 @@ class GulmoharApp {
         const workBtn = createBtn(icons.work, () => { window.location.href = './work/'; }, 'Work');
         const aboutBtn = createBtn(icons.about, () => { window.location.href = './about/'; }, 'About');
 
-        wrapper.append(homeBtn, motionBtn, sunBtn, spiralBtn, moonBtn, workBtn, aboutBtn);
+        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, spiralBtn, moonBtn, workBtn, aboutBtn);
 
         if (SITE.instagram) {
             wrapper.append(createBtn(icons.instagram, () => {
@@ -1163,6 +1326,16 @@ class GulmoharApp {
 
         const sky = this.skySystem.update(this.sunAngle, this.elapsed, this.sunDist);
 
+        const isMorning = Math.sin(this.sunAngle - Math.PI / 2) < 0;
+        // Sun elevation warmth factor (1 at horizon/dawn/dusk, 0 high in sky)
+        const sunWarmth = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.36);
+
+        const targetSunColor = isMorning ? C_SUN_DAWN : C_SUN_LOW;
+        const targetLightColor = isMorning ? C_SUNLIGHT_DAWN : C_SUNLIGHT_LOW;
+
+        this.sunMesh.material.color.lerpColors(C_SUN_HIGH, targetSunColor, sunWarmth);
+        this.sunLight.color.lerpColors(C_SUNLIGHT_HIGH, targetLightColor, sunWarmth);
+
         this.sunMesh.position.copy(sky.cel.sunPos);
         this.moonMesh.position.copy(sky.cel.moonPos);
         this.moonMesh.lookAt(0, 0, 0);
@@ -1179,48 +1352,42 @@ class GulmoharApp {
         this.sunLight.position.copy(_sunDirScratch);
         this.moonLight.position.copy(_moonDirScratch);
 
-        // Smoothly fade celestial discs across twilight horizon
-        const sunFade = THREE.MathUtils.smoothstep(sky.cel.sunAlt, -0.04, 0.12);
+        // Smoothly fade celestial discs across the horizon
+        const sunFade = THREE.MathUtils.smoothstep(sky.cel.sunAlt, -0.035, 0.035);
         this.sunMesh.material.opacity = sunFade;
         this.sunMesh.visible = sunFade > 0.001;
-        const moonFade = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.04, 0.12);
+        if (this.sunGlow) {
+            this.sunGlow.material.color.lerpColors(new THREE.Color(0xfffae0), targetSunColor, sunWarmth);
+            this.sunGlow.material.opacity = sunFade * (0.45 + 0.35 * (1.0 - sunWarmth));
+            this.sunGlow.visible = sunFade > 0.005;
+        }
+        const moonFade = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.035, 0.035);
         this.moonMesh.material.opacity = moonFade;
         this.moonMesh.visible = moonFade > 0.001;
 
         // Continuous smooth transition between day and night key lights
-        // Both lights smoothly cross-fade across the horizon so sunrise/sunset has zero pop.
-        const sunFactor = THREE.MathUtils.smoothstep(sky.sunAlt, -0.05, 0.16);
-        const moonFactor = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.04, 0.10);
+        const sunFactor = THREE.MathUtils.smoothstep(sky.sunAlt, -0.04, 0.06);
+        const moonAltFactor = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.04, 0.10);
+        const moonDarkness = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.22, 0.00);
+        const moonFactor = moonAltFactor * moonDarkness;
 
-        // Shadow STRENGTH ramps with the light instead of snapping on at a
-        // threshold. `castShadow` is a hard boolean, so toggling it at
-        // sunFactor 0.06 made a full-strength shadow appear out of nothing at
-        // dawn and vanish at dusk. `shadow.intensity` is a plain uniform --
-        // it costs no shadow-map re-render and updates every frame, not on
-        // the 12Hz cadence -- so it can fade continuously. castShadow still
-        // gates the (expensive) map render, but now only flips once the
-        // intensity has already reached zero, making the switch invisible.
-        // Ramped against ALTITUDE, not against sunFactor. sunFactor is itself
-        // a smoothstep over sunAlt -0.05..0.16 -- barely 12 degrees -- so
-        // smoothstepping it again saturated to 1 while the sun was still very
-        // low, and the shadow still slammed on. Driving from the raw altitude
-        // over a deliberately WIDER band than the light uses means the shadow
-        // starts weakening well before sunset and is already near zero by the
-        // time the sun/moon caster handover happens, which is what makes the
-        // switch invisible rather than merely quick.
-        const sunShadow = THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.38);
-        const moonShadow = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.02, 0.34) * moonFactor;
+        // Shadow STRENGTH ramps with the light instead of snapping on at a threshold
+        const sunShadow = THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.28);
+        const moonShadow = THREE.MathUtils.smoothstep(sky.cel.moonAlt, 0.02, 0.30) * moonDarkness;
 
-        const fullSunIntensity = 3.6 + Math.sin(Math.max(0.0, sky.sunAlt)) * 1.8;
+        // Sunset/sunrise directional light boost for dramatic low-angle golden/crimson hour raking rays
+        const sunsetBoost = THREE.MathUtils.smoothstep(sky.sunAlt, 0.28, 0.04) * (1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.04, 0.02));
+        const fullSunIntensity = 3.6 + Math.sin(Math.max(0.0, sky.sunAlt)) * 1.8 + sunsetBoost * 2.2;
         this.sunLight.intensity = sunFactor * fullSunIntensity;
-        this.sunLight.shadow.intensity = sunShadow;
-        this.sunLight.castShadow = sunShadow > 0.002 && sunFactor >= moonFactor;
+        // Soften direct shadows so ambient and bounce light fill in dark areas without harsh black cutoffs
+        this.sunLight.shadow.intensity = sunShadow * 0.62;
+        this.sunLight.castShadow = sunShadow > 0.005;
 
-        const fullMoonIntensity = Math.max(2.4, sky.mH * 3.0);
+        const fullMoonIntensity = Math.max(2.2, sky.mH * 3.0);
         this.moonLight.intensity = moonFactor * fullMoonIntensity;
-        // Moonlight shadows stay softer than the sun's even at full moon.
-        this.moonLight.shadow.intensity = moonShadow * 0.72;
-        this.moonLight.castShadow = moonShadow > 0.002 && moonFactor > sunFactor;
+        // Moonlight shadows stay softer than the sun's even at full moon
+        this.moonLight.shadow.intensity = moonShadow * 0.45;
+        this.moonLight.castShadow = moonShadow > 0.01 && this.sunLight.intensity < 0.20;
 
         // Re-render the shadow maps on a fixed cadence, not purely on sun-angle
         // delta. A pure angle gate looked right in isolation and was wrong in
@@ -1261,19 +1428,7 @@ class GulmoharApp {
         const change = sampleFrame(dt * 1000, shadowFrame);
         if (change) this._applyQualityChange(change);
 
-        const isMorning = Math.sin(this.sunAngle - Math.PI / 2) < 0;
-        // Sun elevation warmth factor (1 at horizon/dawn/dusk, 0 high in sky)
-        const sunWarmth = THREE.MathUtils.smoothstep(sky.sunAlt, 0.38, -0.02);
-
-        if (isMorning) {
-            this.sunMesh.material.color.lerpColors(C_SUN_HIGH, C_SUN_LOW, sunWarmth);
-            this.sunLight.color.lerpColors(C_SUNLIGHT_HIGH, C_SUNLIGHT_DAWN, sunWarmth);
-        } else {
-            this.sunMesh.material.color.lerpColors(C_SUN_HIGH, C_SUN_LOW, sunWarmth);
-            this.sunLight.color.lerpColors(C_SUNLIGHT_HIGH, C_SUNLIGHT_LOW, sunWarmth);
-        }
-
-        const moonWarmth = THREE.MathUtils.smoothstep(sky.cel.moonAlt, 0.38, -0.02);
+        const moonWarmth = 1.0 - THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.02, 0.38);
         this.moonMesh.material.color.lerpColors(C_MOON_HIGH, C_MOON_LOW, moonWarmth);
         this.moonMesh.material.emissive.copy(this.moonMesh.material.color);
         this.moonLight.color.lerpColors(C_MOONLIGHT_HIGH, C_MOONLIGHT_LOW, moonWarmth);
@@ -1281,34 +1436,43 @@ class GulmoharApp {
         // Smooth twilight palette cross-fade (Dawn vs Dusk)
         const dawnDuskMix = THREE.MathUtils.clamp(-Math.sin(this.sunAngle - Math.PI / 2) * 1.5 + 0.5, 0.0, 1.0);
         _twiZenith.lerpColors(C_DUSK_ZENITH, C_DAWN_ZENITH, dawnDuskMix);
+        _twiMid.lerpColors(C_DUSK_MID, C_DAWN_MID, dawnDuskMix);
         _twiHorizon.lerpColors(C_DUSK_HORIZON, C_DAWN_HORIZON, dawnDuskMix);
         _twiHorizonOpp.lerpColors(C_DUSK_HORIZON_OPP, C_DAWN_HORIZON_OPP, dawnDuskMix);
 
         // 3-way continuous hermite blend between Day, Twilight, and Night
-        const dayWeight = THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.22);
-        const nightWeight = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.16, 0.04);
+        const dayWeight = THREE.MathUtils.smoothstep(sky.sunAlt, 0.00, 0.24);
+        const nightWeight = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.26, 0.00);
         const twiWeight = Math.max(0.0, 1.0 - dayWeight - nightWeight);
 
         blend3Colors(_skyColScratch, C_DAY_ZENITH, dayWeight, _twiZenith, twiWeight, C_NIGHT_ZENITH, nightWeight);
+        blend3Colors(_midColScratch, C_DAY_MID, dayWeight, _twiMid, twiWeight, C_NIGHT_MID, nightWeight);
         blend3Colors(_horizColScratch, C_DAY_HORIZON, dayWeight, _twiHorizon, twiWeight, C_NIGHT_HORIZON, nightWeight);
         blend3Colors(_horizOppScratch, C_DAY_HORIZON_OPP, dayWeight, _twiHorizonOpp, twiWeight, C_NIGHT_HORIZON, nightWeight);
 
         const u = this.skySystem.skyDomeMat.uniforms;
         u.uZenithColor.value.copy(_skyColScratch);
+        if (u.uMidColor) u.uMidColor.value.copy(_midColScratch);
         u.uHorizonColor.value.copy(_horizColScratch);
         if (u.uHorizonOpposite) u.uHorizonOpposite.value.copy(_horizOppScratch);
-        if (u.uSunColor) u.uSunColor.value.copy(this.sunLight.color);
+        if (u.uSunColor) u.uSunColor.value.copy(this.sunMesh.material.color);
         this.scene.fog.color.copy(_horizColScratch);
 
         // Rich atmospheric ambient lighting
-        blend3Colors(_hemiSkyScratch, C_HEMI_DAY, dayWeight, C_HEMI_DAWN, twiWeight, C_HEMI_NIGHT, nightWeight);
-        blend3Colors(_hemiGndScratch, C_HEMI_GROUND_DAY, dayWeight, C_HEMI_GROUND_DAWN, twiWeight, C_HEMI_GROUND_NIGHT, nightWeight);
+        const twiHemiSky = isMorning ? C_HEMI_DAWN : C_HEMI_DUSK;
+        const twiHemiGnd = isMorning ? C_HEMI_GROUND_DAWN : C_HEMI_GROUND_DUSK;
+        blend3Colors(_hemiSkyScratch, C_HEMI_DAY, dayWeight, twiHemiSky, twiWeight, C_HEMI_NIGHT, nightWeight);
+        blend3Colors(_hemiGndScratch, C_HEMI_GROUND_DAY, dayWeight, twiHemiGnd, twiWeight, C_HEMI_GROUND_NIGHT, nightWeight);
 
-        // Night needs a floor it never had; day keeps its contrast.
-        this.ambientLight.intensity = 0.02 + 0.06 * nightWeight;
+        // Night keeps starlight fill; day keeps its contrast; twilight bathes everything in sunset warmth
+        _ambientColScratch.lerpColors(C_HEMI_NIGHT, twiHemiSky, twiWeight);
+        if (dayWeight > 0.01) _ambientColScratch.lerp(new THREE.Color(0xfff5ea), dayWeight);
+        this.ambientLight.color.copy(_ambientColScratch);
+        this.ambientLight.intensity = 0.12 * nightWeight + 0.22 * twiWeight + 0.16 * dayWeight;
+
         this.hemiLight.color.copy(_hemiSkyScratch);
         this.hemiLight.groundColor.copy(_hemiGndScratch);
-        this.hemiLight.intensity = 0.30 * nightWeight + 0.36 * twiWeight + 0.40 * dayWeight;
+        this.hemiLight.intensity = 0.42 * nightWeight + 0.65 * twiWeight + 0.58 * dayWeight;
 
         // Ground floor tint seamlessly matching celestial lighting
         const twiFloorColor = isMorning ? C_FLOOR_DAWN : C_FLOOR_TWILIGHT;
@@ -1331,9 +1495,13 @@ class GulmoharApp {
         }
 
         // Damping can overshoot a limit for a frame, so clamp height as a backstop.
-        if (this.camera.position.y < 0.4) this.camera.position.y = 0.4;
+        if (this.camera.position.y < 0.2) this.camera.position.y = 0.2;
 
-        this.controls.update();
+        if (this.navMode === 'walk') {
+            this.fpsNavigator.update(dt);
+        } else {
+            this.controls.update();
+        }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from
         // desktop -- so every colour tuned on a desktop was a colour phones

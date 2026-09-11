@@ -86,11 +86,12 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
     const skyDomeGeo = new THREE.SphereGeometry(radius * 0.98, segW, segH);
     const skyDomeMat = new THREE.ShaderMaterial({
         uniforms: {
-            uZenithColor: { value: new THREE.Color(0x1a4674) },
-            uHorizonColor: { value: new THREE.Color(0x4c78a6) },
-            uHorizonOpposite: { value: new THREE.Color(0x4c78a6) },
+            uZenithColor: { value: new THREE.Color(0x20244e) },
+            uMidColor: { value: new THREE.Color(0x7c4168) },
+            uHorizonColor: { value: new THREE.Color(0xeb5e28) },
+            uHorizonOpposite: { value: new THREE.Color(0x523d60) },
             uSunDir: { value: new THREE.Vector3(0, 1, 0) },
-            uSunColor: { value: new THREE.Color(0xfff5d8) },
+            uSunColor: { value: new THREE.Color(0xff8c42) },
             uNightFactor: { value: 0.0 }
         },
         vertexShader: `
@@ -102,6 +103,7 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
         `,
         fragmentShader: `
             uniform vec3 uZenithColor;
+            uniform vec3 uMidColor;
             uniform vec3 uHorizonColor;
             uniform vec3 uHorizonOpposite;
             uniform vec3 uSunDir;
@@ -113,40 +115,44 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
                 vec3 dir = normalize(vWorldPos);
                 float h = max(0.0, dir.y);
 
-                float horizonBand = pow(1.0 - h, 2.8);
+                // Multi-stage vertical atmospheric sky gradient
+                float lowerBand = pow(1.0 - h, 2.2);
+                float midWeight = smoothstep(0.03, 0.35, h) * (1.0 - smoothstep(0.30, 0.85, h));
 
-                // A sunset is not orange all the way round. The warm band sits in
-                // the sun's quarter of the sky and falls off to a cool, dusty
-                // counter-glow behind the viewer -- ringing the whole horizon in
-                // the same orange is the single thing that makes a procedural sky
-                // read as fake. Compare compass bearings only, so the split holds
-                // however high the sun is.
+                // Horizon azimuthal split: sunset/sunrise warmth facing sun, cool twilight counter-glow opposite
                 vec2 dirAz = normalize(vec2(dir.x, dir.z) + vec2(1e-6));
                 vec2 sunAz = normalize(vec2(uSunDir.x, uSunDir.z) + vec2(1e-6));
                 float towardSun = smoothstep(-0.55, 0.95, dot(dirAz, sunAz));
                 vec3 horizonMix = mix(uHorizonOpposite, uHorizonColor, towardSun);
 
-                vec3 baseSky = mix(uZenithColor, horizonMix, horizonBand);
+                // Blend from horizon to transitional mid-sky tone to deep zenith
+                vec3 baseSky = mix(uZenithColor, horizonMix, lowerBand);
+                baseSky = mix(baseSky, uMidColor, midWeight * 0.75);
 
                 float sunDot = max(0.0, dot(dir, uSunDir));
-                // Two terms, not one: a wide Mie-ish scatter that swells around a
-                // low sun and gives the sunset its body, and a tight corona for
-                // the disc itself. The tight term alone reads as a sticker on a
-                // flat gradient.
-                float scatter = pow(sunDot, 5.0) * 0.30 * (1.0 - uNightFactor);
-                float corona  = pow(sunDot, 256.0) * 0.35 * (1.0 - uNightFactor);
+                // Smoothly fade solar features as sun dips below the horizon (-0.06 to +0.06)
+                float dayFactor = clamp(smoothstep(-0.06, 0.06, uSunDir.y), 0.0, 1.0);
 
-                // Scatter concentrates near the horizon, where the light path
-                // through atmosphere is longest.
-                scatter *= mix(0.35, 1.0, horizonBand);
+                // Sunset/dawn warmth factor based on sun elevation (1.0 at horizon, 0.0 high in sky)
+                float sunsetFactor = clamp(1.0 - smoothstep(0.0, 0.32, uSunDir.y), 0.0, 1.0);
 
-                vec3 col = baseSky + uSunColor * (corona + scatter);
+                // 1. Sun core disc: at sunset/sunrise it deepens into an intense, fiery crimson red disc
+                float sunDisc = smoothstep(0.9992, 0.99975, sunDot) * dayFactor;
+                vec3 sunCoreColor = mix(vec3(1.0, 0.96, 0.90), uSunColor, clamp(sunsetFactor * 1.4, 0.0, 1.0));
+                float discIntensity = mix(2.0, 1.05, sunsetFactor);
+                vec3 discLight = sunCoreColor * (sunDisc * discIntensity);
 
-                // Deep royal midnight sky with subtle atmospheric horizon airglow
-                vec3 nightZenith = vec3(0.0284, 0.0395, 0.0742);   // sRGB #2F384D, linearised
-                vec3 nightHorizon = vec3(0.0545, 0.0742, 0.1144);  // sRGB #424D5F, linearised
-                vec3 nightSky = mix(nightZenith, nightHorizon, horizonBand);
-                col = mix(col, nightSky, uNightFactor);
+                // 2. Luminous inner and outer corona halo (tight, refined, no milky blowout)
+                float innerCorona = pow(sunDot, 1600.0) * 0.65 * dayFactor;
+                float outerCorona = pow(sunDot, 280.0) * 0.22 * dayFactor;
+                vec3 coronaLight = uSunColor * (innerCorona * 0.70 + outerCorona * 0.25);
+
+                // 3. Crisp atmospheric Mie scatter (tight forward angle to preserve deep, clear blue sky)
+                float scatter = pow(sunDot, 36.0) * mix(0.10, 0.22, sunsetFactor) * dayFactor;
+                vec3 atmosGlow = uSunColor * (scatter * mix(0.15, 0.50, lowerBand));
+
+                // Combine: atmospheric glow gently warms surrounding sky without washing it into white
+                vec3 col = baseSky + atmosGlow * (1.0 - baseSky * 0.40) + coronaLight + discLight;
 
                 gl_FragColor = vec4(col, 1.0);
             }
@@ -265,12 +271,12 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
             const sH = Math.max(0, Math.sin(sunAlt));
             const mH = Math.max(0, Math.sin(cel.moonAlt));
 
-            // Night factor: 0 in daytime -> 1 at deep night with smoothstep S-curve
-            const nightFactor = THREE.MathUtils.smoothstep(-sunAlt, -0.06, 0.16);
+            // Milky Way unhurriedly unveils during late nautical twilight into deep night
+            const nightFactor = THREE.MathUtils.smoothstep(-sunAlt, 0.12, 0.28);
 
             // Update sky dome shader uniforms
             skyDomeMat.uniforms.uSunDir.value.copy(cel.sunPos).normalize();
-            skyDomeMat.uniforms.uNightFactor.value = nightFactor;
+            if (skyDomeMat.uniforms.uNightFactor) skyDomeMat.uniforms.uNightFactor.value = nightFactor;
 
             // Update Milky Way panorama
             mwMat.uniforms.uNightFactor.value = nightFactor;

@@ -11,6 +11,9 @@ npm run dev      # http://localhost:5173
 npm run build    # → dist/
 ```
 
+Append `?edit` to enter **edit mode** (see [Edit mode](#edit-mode) below).
+Force a quality tier with `?q=low` / `?q=med` / `?q=high`.
+
 ## Layout
 
 ```
@@ -18,21 +21,32 @@ index.html            3D scene: HUD, permanent nav, loader, dock styles
 main.js               GulmoharApp — renderer, lights, ground, dock, render loop
 src/
   content.js          site name, tagline, optional Instagram/email
-  scene/garden.js      loads the four landmark GLBs, scatters ground litter,
-                        builds the path loop, registers click-to-focus targets
-  sky/celestial.js     sun/moon ephemeris, sky dome, stars, Milky Way
-  utils/paths.js       asset URLs that survive being served from a subpath
-work/index.html        the work list (one dummy painting)
-about/index.html       the artist bio (empty placeholders)
-page.css               shared by both flat pages
+  quality.js          GPU probe, tier definitions (low/med/high), adaptive loop
+  controls/
+    fpsNavigator.js   WASD/pointer-lock first-person walk (W/A/S/D + drag)
+  edit/
+    editor.js         painting-placement editor (only loaded on ?edit)
+    zip.js            client-side ZIP export helper used by the editor
+  scene/
+    garden.js         loads the four landmark GLBs, scatters ground litter,
+                      builds the path loop, registers click-to-focus targets
+    grass.js          instanced grass field, quality-tier aware
+    paintings.js      painting load, placement, and persistence helpers
+    wind.js           shared wind uniforms injected into canopy/grass shaders
+  sky/celestial.js    sun/moon ephemeris, sky dome, stars, Milky Way
+  utils/paths.js      asset URLs that survive being served from a subpath
+work/index.html       the work list (one dummy painting)
+about/index.html      the artist bio (empty placeholders)
+page.css              shared by both flat pages
 public/
-  models/               the five garden GLBs actually served (see below)
-  portfolio/             artwork images
-  textures/              Milky Way panorama
-3d_Assets/             pristine Sketchfab source exports -- gitignored, NOT
-                        served. public/models/ holds the optimized derivatives.
-garden-plan.html       the top-down layout artifact drafted from the hand
-                        sketch (idea.jpeg) before building the 3D scene
+  models/              the five garden GLBs actually served (see below)
+  portfolio/           artwork images
+  paintings.json       saved painting placements (written by the editor)
+  textures/            Milky Way panorama, baked ground texture
+3d_Assets/            pristine Sketchfab source exports -- gitignored, NOT
+                      served. public/models/ holds the optimized derivatives.
+garden-plan.html      the top-down layout artifact drafted from the hand
+                      sketch (idea.jpeg) before building the 3D scene
 ```
 
 `work/` and `about/` are real build entries listed in `vite.config.js`. They
@@ -66,6 +80,108 @@ Clicking a landmark's hitbox tweens the camera to that landmark's
 second time calls `resetScene()`. This is the same "one gesture, one meaning"
 rule as the dock's other controls — see `onClick` and `_registerHover`.
 
+## Quality tiers
+
+`src/quality.js` probes the GPU on startup (renderer info, pixel ratio,
+benchmark frame) and assigns one of three tiers:
+
+| Tier | Target | Key reductions |
+|---|---|---|
+| `high` | Desktop GPU | Full grass radius, shadow map 2048, MSAA |
+| `med` | Mid-range / tablet | Reduced grass, shadow map 1024 |
+| `low` | Mobile / integrated | Minimal grass, shadow map 512, no MSAA, no dust |
+
+The **adaptive loop** (`sampleFrame` / `resetAdaptive`) watches live frame
+time and steps `pixelRatio` and instance counts down if the device struggles,
+or back up if it recovers headroom. `InstancedMesh.count` is a free draw-range
+clamp — no geometry reallocation happens.
+
+Force a tier with the `?q=` query parameter; `?edit` pins `high` and disables
+adaptation.
+
+`window.__quality` (dev-only) exposes the live singleton. Re-importing
+`quality.js` in the console gives a phantom module copy with its own state —
+always read from the window global.
+
+## Sky and lighting
+
+`src/sky/celestial.js` runs a Toronto-based sun/moon ephemeris, driving:
+
+- Sky dome gradient (paper white → indigo night via a continuous 3-way
+  `smoothstep` blend through twilight — no abrupt step)
+- Star field and Milky Way panorama (fade starts at −0.28 sun altitude for
+  realistic nautical/astronomical twilight)
+- Directional sun/moon lights
+
+`main.js` cross-fades a dozen colour constants per frame. All constants live
+at module scope — no `THREE.Color` allocations inside the render loop (GC
+pressure that shows up as periodic hitches).
+
+**One clock drives everything.** `sunAngle` feeds light direction and colour,
+sky gradient, fog, floor tint, pond surface, and the on-screen time. A second
+clock for any of those will drift.
+
+### Diurnal pond surface
+
+`pond.update(time, delta, lightCtx)` receives a `lightCtx` object (assembled
+in `main.js`'s render loop) that carries the blended sky/horizon colours, sun
+and moon direction/colour/intensity, and the day/twilight/night weights. The
+pond shader uses them to:
+
+- Fresnel-reflect the actual sky/horizon colour (not a hardcoded blue)
+- Switch specular glint between sun and moon based on time of day
+- Lerp water base colour: emerald (day) → bronze-amber (dusk) → rosy amber
+  (dawn) → indigo (night)
+- Darken the cascade waterfall to near-black at night with a moonlit foam tint
+
+### Wind
+
+`src/scene/wind.js` exports a shared `windUniforms` object injected into
+canopy and grass shaders via `material.onBeforeCompile`. The hook chains —
+it stashes the original on `userData.__preWindCompile` so repeated calls
+(one material, many meshes) chain the *same* original instead of wrapping
+the wrapper, which would duplicate GLSL into a redefinition error.
+
+Leaves cast shadows from their rest pose. Injecting wind into
+`customDepthMaterial` while the shadow map re-renders at ~12 Hz causes the
+dapple to strobe (every refresh catches the leaves at a different gust phase).
+
+`window.__wind` (dev-only) exposes the live uniforms object.
+
+## Controls
+
+### Orbit / click-to-focus (default)
+
+Drag to orbit, scroll to zoom. Click a landmark hitbox to fly to it; click
+again or click empty ground to reset.
+
+### First-person walk
+
+`FPSNavigator` (`src/controls/fpsNavigator.js`) provides WASD + pointer-lock
+first-person navigation. Active in edit mode; the constructor options let the
+caller set move speed and look sensitivity.
+
+## Edit mode
+
+Append `?edit` to the URL to enter the painting-placement editor:
+
+```
+http://localhost:5173/?edit
+```
+
+The editor chunk (`src/edit/editor.js`) is a **dynamic import** — visitors
+who never use `?edit` never download it. In edit mode:
+
+- Quality tier is pinned to `high`; adaptive scaling is disabled
+- A sidebar panel ("Gulmohar · edit mode") appears
+- Click any surface in the scene to raycast a placement point
+- Paintings from `public/portfolio/` can be hung on walls or leant against
+  surfaces
+- Save exports an updated `paintings.json` (and optionally a ZIP of the
+  placement data via `src/edit/zip.js`)
+
+`window.__gulmoharEdit` (dev-only) exposes the live editor instance.
+
 ## The optimization pipeline
 
 **The Sketchfab source files are not fit to serve as downloaded.** Combined,
@@ -80,9 +196,14 @@ triangles — 85% of the entire scene** for decorative litter nobody looks at
 closely.
 
 `public/models/` holds the fix, built with
-[`@gltf-transform/cli`](https://gltf-transform.dev/):
+[`@gltf-transform/cli`](https://gltf-transform.dev/).
+
+**Pipeline order matters** — run in this sequence:
 
 ```bash
+# Only if the source uses KHR_materials_pbrSpecularGlossiness (e.g. the banyan):
+npx @gltf-transform/cli metalrough  in.glb out.glb
+
 npx @gltf-transform/cli resize   in.glb out.glb --width 1024 --height 1024
 npx @gltf-transform/cli simplify in.glb out.glb --ratio 0.12 --error 0.003
 npx @gltf-transform/cli weld     in.glb out.glb
@@ -90,6 +211,12 @@ npx @gltf-transform/cli dedup    in.glb out.glb
 npx @gltf-transform/cli prune    in.glb out.glb
 npx @gltf-transform/cli meshopt  in.glb out.glb --level medium
 ```
+
+**Never run `join`.** `setupPond()` and `setupFloorEverywhere()` identify
+sub-meshes by node name (`water`, `riple`, `plane.002`, `s_list_`, `r1`–`r4`).
+`join` merges same-material meshes and destroys those names — exactly how the
+pond's `plane.002` apron check went dead once. All other steps preserve node
+names.
 
 Applied per asset (skip `simplify` where geometry is already cheap; skip
 `meshopt` where it doesn't help — it made `pond.glb` slightly *larger*, so
@@ -173,8 +300,11 @@ multiplying brightness by a continuously varying ±6% — deliberately not a
   `interactiveData.cameraTarget`.
 - **Leaf litter density** — `countPerMesh` / `countPerPlant` in
   `setupFloorEverywhere()`.
-- **A new work** — drop the image into `public/portfolio/` and copy the
-  `<figure>` block in `work/index.html`.
+- **Grass density / radius** — `QUALITY.grassCount` / `QUALITY.grassRadius`
+  in `src/quality.js` per tier.
+- **A new painting** — drop the image into `public/portfolio/` and hang it
+  via edit mode (`?edit`), then save; or copy a `<figure>` block in
+  `work/index.html`.
 - **The bio** — fill in the four sections of `about/index.html`.
 - **An Instagram button in the dock** — set `SITE.instagram` in
   `src/content.js`; an empty string hides it.
@@ -206,8 +336,8 @@ disappear.
   and reads as a stall. It is gated on both content being ready and the loader
   having cleared, so a fast load cannot play it behind the overlay.
 - **One clock drives everything.** `sunAngle` feeds light direction and colour,
-  sky gradient, fog, floor tint and the on-screen time. A second clock for any
-  of those will drift.
+  sky gradient, fog, floor tint, pond surface, and the on-screen time. A second
+  clock for any of those will drift.
 - **Colour constants live at module scope.** The render loop cross-fades a dozen
   of them per frame; allocating `THREE.Color` objects in there is GC pressure
   that shows up as periodic hitches.
@@ -218,11 +348,7 @@ disappear.
   name** (`water`, `riple`, `plane.002`, `s_list_`, `r1`–`r4`). Any geometry
   pipeline run on those two files must preserve node names — `weld`,
   `simplify`, `resize`, `dedup` and `meshopt` all do, which is why the
-  pipeline above never includes gltf-transform's `join`: it would merge
-  same-material meshes together and break that name-based lookup. It was
-  skipped for every asset here, not only these two, which is why `pond.glb`
-  still costs 405 draw calls for a scene this simple — a real fix, just not
-  one worth the risk to take on while nothing was actually slow because of it.
+  pipeline above never includes gltf-transform's `join`.
 - **Measuring the scene in a headless browser is misleading.** With
   `document.hidden`, `requestAnimationFrame` is throttled and GSAP barely
   advances, so a screenshot catches a tween mid-flight regardless of how long
@@ -230,3 +356,22 @@ disappear.
   `gsap.getTweensOf(target)` and call `.progress(1, false)` — which is
   deterministic and immune to the throttling. `window.__gulmohar` (dev-only)
   exists for exactly this.
+- **`shadow.radius` is ignored by `PCFSoftShadowMap`.** It only applies to PCF
+  and VSM. Setting it under PCFSoft pays for the most expensive filter Three
+  offers while the blur setting never runs.
+- **`renderer.setPixelRatio()` must be followed by `composer.setSize()`.**
+  `EffectComposer.setSize` re-reads the pixel ratio; without it the render
+  targets stay at the old resolution.
+- **`InstancedMesh` is culled against its geometry's bounding sphere** — which
+  describes one clump at the origin, not the scattered field. Widen it by hand
+  or the whole field pops out when the origin clump leaves frame.
+- **`patch` is a reserved word in GLSL ES 3.0** (tessellation). A variable
+  named that silently drops the whole ground plane — the sky dome shows below
+  the horizon with no error logged. Always assert zero failed programs after a
+  shader change: `renderer.info.programs.filter(p => !gl.getProgramParameter(p.program, gl.LINK_STATUS)).length` must be 0.
+- **`KHR_materials_pbrSpecularGlossiness` is unsupported by GLTFLoader.**
+  Models using it load untextured. Fix with `gltf-transform metalrough`
+  *before* the rest of the pipeline.
+- **Console `await import('/src/x.js')` gets a second module instance** — a
+  phantom with its own state. Read live singletons from `window.__gulmohar`,
+  `window.__quality`, `window.__wind`, `window.__gulmoharEdit` instead.

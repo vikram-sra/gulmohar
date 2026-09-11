@@ -21,7 +21,7 @@ import * as THREE from 'three';
 const TIERS = {
     low: {
         floorLeafCount: 10, microPlantCount: 16,
-        grassCount: 5000, grassRadius: 34, backgroundTrees: 2, vegClumpCount: 70, denseGrassCount: 14,
+        grassCount: 18000, grassRadius: 36, backgroundTrees: 2, vegClumpCount: 20, denseGrassCount: 6,
         shadowMapSize: 1024, shadowIntervalMs: 140, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.0, foliageReceiveShadow: false,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2,
@@ -30,7 +30,7 @@ const TIERS = {
     },
     medium: {
         floorLeafCount: 24, microPlantCount: 34,
-        grassCount: 9000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 150, denseGrassCount: 28,
+        grassCount: 32000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 40, denseGrassCount: 12,
         shadowMapSize: 2048, shadowIntervalMs: 90, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.4, foliageReceiveShadow: true,
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
@@ -39,7 +39,7 @@ const TIERS = {
     },
     high: {
         floorLeafCount: 45, microPlantCount: 60,
-        grassCount: 14000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 260, denseGrassCount: 48,
+        grassCount: 46000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 60, denseGrassCount: 16,
         // PCFShadowMap on all tiers. In Three.js v0.182, PCFShadowMap provides
         // hardware depth comparison filtering with Vogel disk / IGN sampling
         // and honors shadow.radius (1.8), giving organic dappled leaf shadows

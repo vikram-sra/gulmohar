@@ -31,7 +31,7 @@ export const windUniforms = {
 
 // A flower stalk or a maple leaf mass reads as leafy; the load-bearing wood
 // underneath it never should, however its material happens to be named.
-const LEAFY = /leaf|leaves|foliage|frond|petal|flower|blossom|canopy|needle|twig|stalk|bud/i;
+const LEAFY = /leaf|leaves|foliage|frond|petal|flower|blossom|canopy|needle|twig|stalk|bud|mango|fruit|00[14]/i;
 const WOODY = /trunk|bark|wood|stem|log|root|limb|timber|branch|shu[_ -]?gan/i;
 
 /**
@@ -64,8 +64,15 @@ export function isFoliageForWind(mesh, material) {
  * @param {number} opts.swayFraction  amplitude as a fraction of the mesh's
  *   OWN bounding-box extent (never the model's, never a world-space metre value)
  * @param {number} opts.speedMult     per-species speed multiplier
+ * @param {number} opts.flutterMult   per-species leaf flutter intensity
+ * @param {boolean} opts.isFruit      whether this mesh represents hanging fruits
  */
-export function injectFoliageWind(mesh, material, { swayFraction = 0.045, speedMult = 1.0 } = {}) {
+export function injectFoliageWind(mesh, material, {
+    swayFraction = 0.045,
+    speedMult = 1.0,
+    flutterMult = 1.0,
+    isFruit = false
+} = {}) {
     if (!mesh.geometry) return;
     mesh.geometry.computeBoundingBox();
     const bb = mesh.geometry.boundingBox;
@@ -74,11 +81,8 @@ export function injectFoliageWind(mesh, material, { swayFraction = 0.045, speedM
     const baseY = bb.min.y;
     const height = Math.max(bb.max.y - bb.min.y, 1e-4);
 
-    // Distinct compiled programs per (amplitude, speed) pair -- reusing one
-    // program across species/meshes with different constants baked into the
-    // GLSL string would silently apply the FIRST mesh's amplitude to all of
-    // them, since Three caches by material unless told the key differs.
-    const cacheKey = `foliageWind_${amplitude.toFixed(4)}_${speedMult.toFixed(3)}`;
+    // Distinct compiled programs per (amplitude, speed, flutter, fruit) tuple
+    const cacheKey = `foliageWind_${amplitude.toFixed(4)}_${speedMult.toFixed(3)}_${flutterMult.toFixed(2)}_${isFruit ? 'f' : 'l'}`;
     material.customProgramCacheKey = () => cacheKey;
 
     const inject = (shader) => {
@@ -100,26 +104,35 @@ uniform float uWindStrength;
 #else
     vec4 wPos = modelMatrix * vec4(transformed, 1.0);
 #endif
-    // Grove-scale wave: long wavelength, so it moves branches relative to
-    // each other rather than translating the whole mesh as one rigid body
-    // (rigid translation barely reads as motion at all).
-    float wavePhase = dot(wPos.xz, vec2(0.7, 0.7)) * 0.075 - uWindTime * ${(1.5 * speedMult).toFixed(4)};
-    float wave = sin(wavePhase) * 0.72 + sin(wavePhase * 2.15 + 1.1) * 0.28;
+    // Smooth grove-scale wave: wavelength moves branches and canopies naturally
+    float wavePhase = dot(wPos.xz, vec2(0.65, 0.75)) * 0.12 - uWindTime * ${(1.35 * speedMult).toFixed(4)};
+    float wave = sin(wavePhase) * 0.70 + sin(wavePhase * 2.1 + 1.1) * 0.30;
 
-    // Leaf-scale flutter: phase from LOCAL position, not world position -- a
-    // world-space phase term varies across a single leaf's own vertices and
-    // tears it apart instead of fluttering it as a whole.
-    float flutter = sin(uWindTime * ${(5.0 * speedMult).toFixed(4)} + dot(transformed.xyz, vec3(3.0))) * 0.10;
-
-    // Base of the mesh stays anchored, the tip responds fully -- normalised
-    // to THIS mesh's own bounding box, not an assumed metre-scale space.
-    float compliance = clamp((wPos.y - modelMatrix[3].y - (${baseY.toFixed(4)})) / ${height.toFixed(4)}, 0.0, 1.0);
-    compliance = mix(0.55, 1.0, compliance);
+    // Height compliance: base of mesh stays anchored, upper canopy moves freely
+    float compliance = clamp((transformed.y - (${baseY.toFixed(4)})) / ${height.toFixed(4)}, 0.0, 1.0);
+    compliance = mix(0.50, 1.0, compliance);
 
     float amp = uWindStrength * ${amplitude.toFixed(5)} * compliance;
-    transformed.x += (wave * 0.82 + flutter * 0.3) * amp;
-    transformed.z += (wave * 0.62 + flutter * 0.3) * amp;
-    transformed.y += -abs(wave) * amp * 0.14;
+` + (isFruit ? `
+    // Hanging fruit dynamics: graceful pendular sway with inertia and subtle bob
+    float fruitPhase = dot(transformed.xyz, vec3(2.4, 1.8, 3.1));
+    float fruitSwing = sin(uWindTime * ${(2.2 * speedMult).toFixed(4)} + fruitPhase) * 0.85
+                     + sin(uWindTime * ${(3.3 * speedMult).toFixed(4)} + fruitPhase * 1.4) * 0.35;
+    float fruitBob = cos(uWindTime * ${(2.6 * speedMult).toFixed(4)} + fruitPhase) * 0.22;
+
+    transformed.x += (wave * 0.72 + fruitSwing * 0.55) * amp;
+    transformed.z += (wave * 0.58 + fruitSwing * 0.45) * amp;
+    transformed.y += (fruitBob * 0.35 - abs(wave) * 0.12) * amp;
+` : `
+    // Gentle, natural leaf flutter & rustle across individual leaf clusters
+    float leafPhase = dot(transformed.xyz, vec3(4.8, 3.2, 4.1));
+    float flutter = (sin(uWindTime * ${(3.6 * speedMult).toFixed(4)} + leafPhase) * 0.70
+                   + sin(uWindTime * ${(5.2 * speedMult).toFixed(4)} + leafPhase * 1.5) * 0.30) * ${(0.42 * flutterMult).toFixed(4)};
+
+    transformed.x += (wave * 0.78 + flutter * 0.48) * amp;
+    transformed.z += (wave * 0.58 + flutter * 0.42) * amp;
+    transformed.y += (-abs(wave) * 0.15 + sin(uWindTime * ${(4.2 * speedMult).toFixed(4)} + leafPhase) * ${(0.22 * flutterMult).toFixed(4)}) * amp;
+`) + `
 }
 `
         );
@@ -128,11 +141,7 @@ uniform float uWindStrength;
     // A bare assignment here silently drops whatever onBeforeCompile the
     // material already carried -- which is what threw away the pastel colour
     // grade on exactly the meshes that sway (every leaf and flower), leaving
-    // the canopy vivid while the trunk graded correctly. Chain instead. The
-    // original is stashed on userData so repeated calls -- one material is
-    // shared across many leaf meshes -- always chain the SAME original rather
-    // than wrapping the previous wind wrapper again and again, which would
-    // duplicate the injected GLSL into a redefinition error.
+    // the canopy vivid while the trunk graded correctly. Chain instead.
     if (material.userData.__preWindCompile === undefined) {
         material.userData.__preWindCompile = material.onBeforeCompile || null;
     }
@@ -142,40 +151,19 @@ uniform float uWindStrength;
         : inject;
     material.needsUpdate = true;
 
-    // The depth pass deliberately does NOT get the wind.
-    //
-    // It used to, on the reasoning that a swaying canopy should not cast a
-    // rigid shadow. But the shadow map is CACHED and re-rendered on a ~12Hz
-    // cadence, while uWindTime advances every frame -- so each refresh
-    // captured the leaves at a different point in the gust and the whole
-    // dappled pattern snapped to a new position twelve times a second. That
-    // strobing is what reads as jittery, un-smooth shadows, and no amount of
-    // filtering or resolution fixes it, because the problem is temporal, not
-    // spatial.
-    //
-    // The two features are simply incompatible: you can have wind-accurate
-    // shadows or a cached shadow map, not both. Cached wins easily here --
-    // it is ~691k triangles per refresh -- so the leaves now cast from their
-    // rest pose. The shadow then changes only with the sun, in tiny smooth
-    // increments, and holds perfectly still between them. The cost is a
-    // sub-leaf-width mismatch between a leaf and its own shadow, invisible
-    // in a soft dapple; the benefit is that the shadow stops flickering.
-    // It also makes the depth pass cheaper, since it no longer runs the
-    // wind maths at all.
+    // The depth pass deliberately does NOT get the wind: shadow map caching
+    // requires static caster positions to prevent 12Hz shadow strobing.
 }
 
 // ---------------------------------------------------------------------------
 // The wind envelope: turns a single strength into weather rather than a fan
-// left on. A slow gate lulls to near-zero for a while, eases back over a few
-// seconds, and three detuned (non-harmonic) sine terms keep even a sustained
-// "breezy" stretch wandering instead of holding one fixed value.
+// left on. A slow gate lulls to a gentle ambient floor, eases back over a few
+// seconds, and detuned sine terms keep sustained breezes wandering naturally.
 // ---------------------------------------------------------------------------
-// 0.30 read as trees wobbling; 0.15 was so restrained it read as no wind at
-// all. 0.24 sits between them: clearly moving, still a breeze not a gale.
-const BASE_STRENGTH = 0.24;
+const BASE_STRENGTH = 0.26;
 
 export function createWindEnvelope() {
-    return { gate: 1, target: 1, hold: 6 + Math.random() * 10 };
+    return { gate: 0.7, target: 1.0, hold: 8 + Math.random() * 8 };
 }
 
 /**
@@ -187,16 +175,16 @@ export function updateWindEnvelope(env, dt, elapsedSeconds) {
     env.hold -= dt;
     if (env.hold <= 0) {
         const goingCalm = env.target > 0.5;
-        env.target = goingCalm ? 0 : 1;
-        // Calm stretches shorter than breezy ones, or the garden reads as
-        // still more often than it reads as windy.
-        env.hold = goingCalm ? (4 + Math.random() * 5) : (40 + Math.random() * 50);
+        // Keep a gentle continuous ambient floor (~0.35) during calm lulls
+        // so the grass and leaves never freeze completely solid
+        env.target = goingCalm ? 0.35 : 1.0;
+        env.hold = goingCalm ? (5 + Math.random() * 6) : (25 + Math.random() * 35);
     }
-    env.gate += (env.target - env.gate) * (1 - Math.exp(-dt / 4.0));
+    env.gate += (env.target - env.gate) * (1 - Math.exp(-dt / 3.5));
 
     const t = elapsedSeconds;
-    const gust = 0.62 + Math.sin(t * 0.23) * 0.20 + Math.sin(t * 0.61 + 1.7) * 0.12 + Math.sin(t * 1.13 + 4.2) * 0.06;
+    const gust = 0.65 + Math.sin(t * 0.22) * 0.18 + Math.sin(t * 0.58 + 1.5) * 0.12 + Math.sin(t * 1.05 + 3.8) * 0.05;
 
-    windUniforms.uWindTime.value = elapsedSeconds * 1.4;
-    windUniforms.uWindStrength.value = BASE_STRENGTH * env.gate * Math.max(0, gust);
+    windUniforms.uWindTime.value = elapsedSeconds * 1.35;
+    windUniforms.uWindStrength.value = BASE_STRENGTH * env.gate * Math.max(0.25, gust);
 }
