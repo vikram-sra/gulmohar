@@ -11,6 +11,12 @@ const MAX_RADIUS = 37.5;
 const JUMP_IMPULSE = 6.2;
 const GRAVITY = 18.0;
 
+// Fraction of the joystick's own radius, from centre, ignored before any
+// movement input is read. Thumb tremor near rest otherwise reads as a slow,
+// persistent creep -- especially noticeable now that WALK_SPEED starts
+// applying from the very first pixel of travel.
+const JOYSTICK_DEADZONE = 0.14;
+
 export class FPSNavigator {
     constructor(camera, domElement, options = {}) {
         this.camera = camera;
@@ -229,15 +235,26 @@ export class FPSNavigator {
                 if (e.pointerId === this.joystickPointerId) {
                     const dx = e.clientX - this.joystickOrigin.x;
                     const dy = e.clientY - this.joystickOrigin.y;
-                    const maxDist = 48;
+                    const maxDist = this._joystickRadius();
                     const dist = Math.hypot(dx, dy);
                     const clampedDist = Math.min(maxDist, dist);
                     const angle = Math.atan2(dy, dx);
-                    
-                    const stickX = Math.cos(angle) * (clampedDist / maxDist);
-                    const stickY = Math.sin(angle) * (clampedDist / maxDist);
-                    this.touchMove.x = stickX;
-                    this.touchMove.y = -stickY; // inverted Y for forward
+
+                    // The thumb visual tracks the raw finger position (still
+                    // feels attached to the touch), but the movement OUTPUT
+                    // goes through a deadzone and an eased curve: a thumb
+                    // resting near centre is a few pixels of unavoidable
+                    // tremor, not intent, and was read as a slow persistent
+                    // drift; a raw-linear response also made the first
+                    // millimetre of travel already near-full speed, which is
+                    // what read as jerky/imprecise starts and stops on a
+                    // touchscreen.
+                    let mag = clampedDist / maxDist;
+                    mag = mag < JOYSTICK_DEADZONE ? 0 : (mag - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE);
+                    mag = mag * mag * (3 - 2 * mag); // smoothstep
+
+                    this.touchMove.x = Math.cos(angle) * mag;
+                    this.touchMove.y = -Math.sin(angle) * mag; // inverted Y for forward
                     this._updateJoystickThumb(Math.cos(angle) * clampedDist, Math.sin(angle) * clampedDist);
                 } else if (e.pointerId === this.lookPointerId) {
                     const dx = e.clientX - this.lastPointerX;
@@ -336,8 +353,13 @@ export class FPSNavigator {
         this.sprintBtn = zone.querySelector('#fps-sprint-toggle');
         this.jumpBtn = zone.querySelector('#fps-jump-btn');
 
-        this.sprintBtn.addEventListener('click', (e) => {
+        // pointerdown, not click: it fires the instant a finger lands rather
+        // than waiting for the up-event + the browser's tap/scroll
+        // disambiguation, which is the same latency jumpBtn below already
+        // avoids.
+        this.sprintBtn.addEventListener('pointerdown', (e) => {
             e.stopPropagation();
+            e.preventDefault();
             this.keys.sprint = !this.keys.sprint;
             this.sprintBtn.classList.toggle('active', this.keys.sprint);
         });
@@ -345,6 +367,7 @@ export class FPSNavigator {
         if (this.jumpBtn) {
             this.jumpBtn.addEventListener('pointerdown', (e) => {
                 e.stopPropagation();
+                e.preventDefault();
                 if (this.isGrounded) {
                     this.jumpVelocity = JUMP_IMPULSE;
                     this.isGrounded = false;
@@ -357,6 +380,20 @@ export class FPSNavigator {
             const hint = document.getElementById('fps-walk-hint');
             if (hint) hint.classList.add('fps-hint-fade');
         }, 5000);
+    }
+
+    /**
+     * The joystick's own radius in CSS px, matching `.fps-joystick-base`'s
+     * `clamp(84px, 22vw, 120px)` diameter exactly (same formula, halved) --
+     * one source of truth for how far a thumb can travel, so the visual ring
+     * and the drag distance that reaches full speed never disagree. Scales
+     * with viewport width so a small phone and a tablet each get a stick
+     * that occupies roughly the same fraction of a thumb's comfortable
+     * reach, rather than a fixed pixel size that reads as cramped on one and
+     * tiny-in-the-corner on the other.
+     */
+    _joystickRadius() {
+        return Math.max(84, Math.min(120, window.innerWidth * 0.22)) / 2;
     }
 
     _resetJoystickRestPosition() {
@@ -552,8 +589,13 @@ export class FPSNavigator {
         if (this.keys.right) inputX += 1;
         if (this.keys.left) inputX -= 1;
 
-        // Virtual joystick input
-        if (Math.abs(this.touchMove.x) > 0.05 || Math.abs(this.touchMove.y) > 0.05) {
+        // Virtual joystick input. The pointermove handler above already
+        // applies JOYSTICK_DEADZONE and zeroes touchMove exactly below it, so
+        // this only needs to guard against float noise, not re-deadzone --
+        // a second, coarser cutoff here used to eat the first several percent
+        // of the eased curve's range as well, making the stick feel like it
+        // had a dead centre wider than the visible ring.
+        if (Math.abs(this.touchMove.x) > 1e-4 || Math.abs(this.touchMove.y) > 1e-4) {
             inputX = this.touchMove.x;
             inputZ = this.touchMove.y;
         }

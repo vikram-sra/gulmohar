@@ -1194,6 +1194,10 @@ class GulmoharApp {
 
                 btn.addEventListener('pointerdown', (e) => {
                     e.stopPropagation();
+                    // Stops the browser reading this touch as the start of a
+                    // scroll on the bar (it overflow-scrolls on narrow
+                    // phones) rather than a tap -- see the addLongPress note.
+                    e.preventDefault();
                     startX = e.clientX;
                     startY = e.clientY;
                     startTime = performance.now();
@@ -1225,6 +1229,12 @@ class GulmoharApp {
             let interval = null, startedAt = 0, isLongPress = false;
             const start = (e) => {
                 e.stopPropagation();
+                // Without this, a touch that starts on the button can still be
+                // read by the browser as the first move of a scroll on the bar
+                // (it overflow-scrolls on narrow phones) and be handed off with
+                // a pointercancel rather than a pointerup -- see settle() below
+                // for what that used to do unchecked.
+                e.preventDefault();
                 if (interval) clearInterval(interval);
                 this.resetUIHideTimer();
                 startedAt = performance.now();
@@ -1241,6 +1251,18 @@ class GulmoharApp {
                     }
                 }, 50);
             };
+            // Release means "stay where you left it" for the time buttons, and
+            // "settle back to ambient" for the motion button -- shared by a
+            // real release and a cancelled touch, so a gesture the browser
+            // aborts mid-hold still stops ramping instead of being stuck open.
+            const settle = () => {
+                if (btn === this.motionBtn) {
+                    this.controls.autoRotateSpeed = -0.35;
+                    this.daySpeed = AMBIENT_DAY_SPEED;
+                } else {
+                    this.daySpeed = 0;
+                }
+            };
             const end = (e) => {
                 if (interval) { clearInterval(interval); interval = null; }
                 if (startedAt && performance.now() - startedAt > HOLD_MS) isLongPress = true;
@@ -1248,20 +1270,28 @@ class GulmoharApp {
                     onTap();
                     this.resetUIHideTimer();
                 } else if (isLongPress) {
-                    // Release means "stay where you left it" for the time buttons,
-                    // and "settle back to ambient" for the motion button.
-                    if (btn === this.motionBtn) {
-                        this.controls.autoRotateSpeed = -0.35;
-                        this.daySpeed = AMBIENT_DAY_SPEED;
-                    } else {
-                        this.daySpeed = 0;
-                    }
+                    settle();
                 }
+                startedAt = 0;
+            };
+            // A cancelled touch is not a tap -- onTap never fires for one --
+            // but if the hold had already started ramping autoRotate/daySpeed,
+            // that has to be undone here too, or it was PERMANENT: nothing else
+            // ever clears `interval`, so onInterval kept firing every 50ms
+            // forever, autoRotate re-enabling itself and daySpeed climbing
+            // long after the finger left the screen. This is what made a tap
+            // on the motion button occasionally spin the camera away and race
+            // the sky on its own with no further input.
+            const cancel = () => {
+                if (interval) { clearInterval(interval); interval = null; }
+                if (startedAt && performance.now() - startedAt > HOLD_MS) isLongPress = true;
+                if (isLongPress) settle();
                 startedAt = 0;
             };
             btn.addEventListener('pointerdown', start);
             btn.addEventListener('pointerup', end);
             btn.addEventListener('pointerleave', end);   // a finger sliding off must not stick
+            btn.addEventListener('pointercancel', cancel);
         };
 
         const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home');
