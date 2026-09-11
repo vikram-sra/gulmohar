@@ -7,10 +7,12 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import gsap from 'gsap';
 
 import { createTorontoSkySystem } from './src/sky/celestial.js';
+import { SKY_LOOKUP_GLSL } from './src/sky/atmosphere.js';
 import { QUALITY, resolveQuality, sampleFrame, resetAdaptive } from './src/quality.js';
 import { windUniforms } from './src/scene/wind.js';
-import { loadGarden, GARDEN_POINTS, groundHeightAt } from './src/scene/garden.js';
+import { loadGarden, GARDEN_POINTS, groundHeightAt, POND_WATER_Y, POND_EXTENT } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
+import { createLawn } from './src/scene/lawn.js';
 import { loadPlacements, mountAllPaintings } from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
@@ -26,17 +28,10 @@ import { FPSNavigator } from './src/controls/fpsNavigator.js';
 // ---------------------------------------------------------------------------
 const _sunDirScratch = new THREE.Vector3();
 const _moonDirScratch = new THREE.Vector3();
-const _skyColScratch = new THREE.Color();
-const _midColScratch = new THREE.Color();
-const _horizColScratch = new THREE.Color();
-const _horizOppScratch = new THREE.Color();
-const _twiZenith = new THREE.Color();
-const _twiMid = new THREE.Color();
-const _twiHorizon = new THREE.Color();
-const _twiHorizonOpp = new THREE.Color();
 const _hemiSkyScratch = new THREE.Color();
 const _hemiGndScratch = new THREE.Color();
 const _ambientColScratch = new THREE.Color();
+const _skyFillScratch = new THREE.Color();
 
 function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     out.r = c1.r * w1 + c2.r * w2 + c3.r * w3;
@@ -45,32 +40,25 @@ function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     return out;
 }
 
-// Sky Palette - rich, chromatic natural atmospheric gradients (no milky white haze)
-const C_DAY_ZENITH = new THREE.Color(0x1858a2);        // deep, rich, vivid azure/cobalt sky
-const C_DAY_MID = new THREE.Color(0x448ad6);           // crisp, vivid daytime cerulean
-const C_DAY_HORIZON = new THREE.Color(0x8ec2ec);       // clean, clear sky-blue horizon
-const C_DAY_HORIZON_OPP = new THREE.Color(0x7eb5e6);   // crisp clear horizon
+const luma = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 
-const C_DAWN_ZENITH = new THREE.Color(0x182648);       // deep crisp morning navy
-const C_DAWN_MID = new THREE.Color(0x7e2844);          // rich crimson-rose dawn mid-sky
-const C_DAWN_HORIZON = new THREE.Color(0xde2408);      // fiery crimson red sunrise horizon
-const C_DAWN_HORIZON_OPP = new THREE.Color(0x3a2444);  // deep twilight counter-glow
-
-const C_DUSK_ZENITH = new THREE.Color(0x16183e);       // deep velvet twilight indigo
-const C_DUSK_MID = new THREE.Color(0x8a1834);          // intense burning crimson-magenta
-const C_DUSK_HORIZON = new THREE.Color(0xd21804);      // fiery deep crimson red sunset horizon
-const C_DUSK_HORIZON_OPP = new THREE.Color(0x3e1c3e);  // rich dusky amethyst
+// The sky, the sun's colour, the fog and the pond's reflections all come
+// from the physically based atmosphere (src/sky/atmosphere.js) now. What is
+// left here is only what the physics does not decide: night, and how bright
+// each light is.
+//
+// Aerosol load: mornings are clearer than evenings (a day's convection and
+// traffic lifts dust and haze), which is why sunrise skies run cooler and
+// pinker and sunsets warmer and more orange. Values are x the textbook clear
+// sky; 1.0 alone gives a pink, washed arch that no summer evening has.
+const MIE_MORNING = 2.8;
+const MIE_EVENING = 4.2;
 
 const C_NIGHT_ZENITH = new THREE.Color(0x0a101e);      // deep velvet midnight indigo
-const C_NIGHT_MID = new THREE.Color(0x121a2c);
 const C_NIGHT_HORIZON = new THREE.Color(0x1a2436);
+const C_WHITE = new THREE.Color(0xffffff);
+const C_AMBIENT_DAY = new THREE.Color(0xfff5ea);
 
-const C_SUN_HIGH = new THREE.Color(0xfffae6);          // radiant warm golden daylight
-const C_SUN_LOW = new THREE.Color(0xd81202);           // fiery deep crimson red sun disc at sunset
-const C_SUN_DAWN = new THREE.Color(0xeb2406);          // burning ruby red sun disc at sunrise
-const C_SUNLIGHT_HIGH = new THREE.Color(0xfffaee);     // gentle warm white sunlight
-const C_SUNLIGHT_LOW = new THREE.Color(0xff3600);      // fiery sunset red-orange illumination
-const C_SUNLIGHT_DAWN = new THREE.Color(0xff4c14);     // radiant dawn vermilion illumination
 const C_MOON_HIGH = new THREE.Color(0xe8eef7);
 const C_MOON_LOW = new THREE.Color(0xc8d6e6);
 const C_MOON_EMISSIVE = new THREE.Color(0xe2eaf4);
@@ -78,18 +66,19 @@ const C_MOONLIGHT_HIGH = new THREE.Color(0xdbe5f3);
 const C_MOONLIGHT_LOW = new THREE.Color(0xcbd9ea);
 
 const C_HEMI_NIGHT = new THREE.Color(0x38486e);
-const C_HEMI_DUSK = new THREE.Color(0xd83818);         // burning sunset crimson sky ambient
+const TWILIGHT_FILL_LUM = 0.42;                        // twilight sky-fill brightness; hue comes from the sky
 const C_HEMI_GROUND_DUSK = new THREE.Color(0x6a3824);  // warm earthen sunset ground reflection
-const C_HEMI_DAWN = new THREE.Color(0xe84a20);         // radiant dawn vermilion sky ambient
 const C_HEMI_GROUND_DAWN = new THREE.Color(0x6e4228);  // warm dawn ground reflection
 const C_HEMI_DAY = new THREE.Color(0xb0d2f8);
 const C_HEMI_GROUND_NIGHT = new THREE.Color(0x283244);
 const C_HEMI_GROUND_DAY = new THREE.Color(0x6a7d54);
 
+// The lawn's tint is its albedo, which does not turn orange at sunset -- the
+// light does, and painting it orange as well doubled the effect into rust.
+// Twilight only darkens it a touch toward the night grade.
 const C_FLOOR_NOON = new THREE.Color(0x486e30);      // lush verdant lawn turf base
-const C_FLOOR_TWILIGHT = new THREE.Color(0x76381c);   // rich warm sunset earth turf
+const C_FLOOR_TWILIGHT = new THREE.Color(0x3e5e2c);
 const C_FLOOR_MIDNIGHT = new THREE.Color(0x28382c);   // deep twilight forest floor
-const C_FLOOR_DAWN = new THREE.Color(0x6e4222);       // fresh early morning turf
 
 const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
@@ -386,7 +375,10 @@ class GulmoharApp {
             map: sunGlowTex,
             color: 0xff4c14,
             transparent: true,
-            blending: THREE.NormalBlending,
+            // Additive: the sky behind is HDR now and often brighter than 1,
+            // so a normal-blended glow of any 0..1 colour DARKENED it -- a dull
+            // ring around the sun, and a washed-out disc under it.
+            blending: THREE.AdditiveBlending,
             depthWrite: false,
             fog: false
         });
@@ -483,20 +475,17 @@ class GulmoharApp {
     }
 
     setupEnvironment() {
-        // Ground: garden disc with a soft organic edge fade. The maple/pond/
-        // gazebo corners sit at r=28-31 and the maple's canopy reaches ~37, so
-        // the fade band (below) has to start beyond that -- at the old r=31 it
-        // began at the maple's own trunk and dissolved it into fog. 60m was an
+        // Ground: garden disc with a soft organic edge fade. The pond and
+        // gazebo corners sit at r=28-31 and the pond's far bank reaches ~38,
+        // so the fade band (below) has to start beyond that. 60m was an
         // overcorrection: a bare tan ring past the grass, and a lot of
         // transparent fill for nothing.
         // A tessellated plane rather than a CircleGeometry fan, because the
-        // ground now has relief: CircleGeometry has a centre vertex and a rim
-        // ring and nothing in between, so there is simply nowhere to put a
-        // berm. The disc shape still comes from the radial alpha fade in the
-        // shader below, which discards everything past the edge, so the square
-        // corners never draw. ~20k triangles for 1m of displacement
-        // resolution, against a ~1M scene -- immaterial.
-        const groundGeo = new THREE.PlaneGeometry(100, 100, 100, 100);
+        // ground has relief -- the whole pond basin is this plane, displaced
+        // by groundHeightAt(). 0.5m quads (80k triangles) so the banks curve
+        // rather than facet where the water meets them; flat lawn costs the
+        // same either way, and against a ~1M scene it is immaterial.
+        const groundGeo = new THREE.PlaneGeometry(100, 100, 200, 200);
         groundGeo.rotateX(-Math.PI / 2);
         {
             const pos = groundGeo.attributes.position;
@@ -535,12 +524,42 @@ class GulmoharApp {
             transparent: true,
             depthWrite: true
         });
+        // The pond's banks and bed wear the pond scene's own ground texture
+        // (baked out by scripts/bake-pond-terrain.py), world-mapped.
+        const pondBedTex = new THREE.TextureLoader(this.loadingManager).load(getAssetUrl('textures/pond_bed.jpg'));
+        pondBedTex.wrapS = pondBedTex.wrapT = THREE.RepeatWrapping;
+        pondBedTex.colorSpace = THREE.SRGBColorSpace;
+        pondBedTex.anisotropy = this._maxAnisotropy();
+        // Keyed on height relative to the water, like everything else about
+        // the pond, so it follows the basin with no second copy of its shape.
+        const W = POND_WATER_Y.toFixed(3);
+        const pondBankGLSL = `smoothstep(${W} + 0.36, ${W} + 0.03, vGroundWorldPos.y)`;
+        const floorNoonLum = luma(C_FLOOR_NOON).toFixed(5);
         this.groundMat.onBeforeCompile = (shader) => {
+            // Same uniform objects as the dome, so the fade below always reads
+            // the sky's current colour with no per-frame copying.
+            Object.assign(shader.uniforms, this.skySystem.atmosphere.uniforms);
+            shader.uniforms.uPondBed = { value: pondBedTex };
             shader.vertexShader = 'varying vec3 vGroundWorldPos;\n' + shader.vertexShader.replace(
                 '#include <worldpos_vertex>',
                 '#include <worldpos_vertex>\n vGroundWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;'
             );
-            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\n' + shader.fragmentShader.replace(
+            shader.fragmentShader = shader.fragmentShader.replace(
+                '#include <map_fragment>',
+                `#include <map_fragment>
+                 // Swap the lawn's albedo for the pond bank's on the banks and
+                 // under the water. The material colour carries the day/night
+                 // floor grade, so the bank keeps its brightness, not its green.
+                 {
+                     float pondBank = ${pondBankGLSL};
+                     if (pondBank > 0.0) {
+                         vec3 bed = texture2D(uPondBed, vGroundWorldPos.xz * 0.21).rgb;
+                         float grade = dot(diffuse, vec3(0.2126, 0.7152, 0.0722)) / ${floorNoonLum};
+                         diffuseColor.rgb = mix(diffuseColor.rgb, bed * grade * 0.9, pondBank);
+                     }
+                 }`
+            );
+            shader.fragmentShader = 'varying vec3 vGroundWorldPos;\nuniform sampler2D uPondBed;\n' + SKY_LOOKUP_GLSL + shader.fragmentShader.replace(
                 '#include <dithering_fragment>',
                 `#include <dithering_fragment>
                  // A tiled photograph repeats exactly every tile, which the eye
@@ -575,23 +594,33 @@ class GulmoharApp {
                  // plane and left the sky dome showing below the horizon.
                  float turfPatch = sin(vGroundWorldPos.x * 0.055 + 0.6) * sin(vGroundWorldPos.z * 0.047 - 1.2)
                                  + sin(vGroundWorldPos.x * 0.021 - 1.7) * sin(vGroundWorldPos.z * 0.019 + 2.2) * 0.5;
-                 gl_FragColor.rgb = mix(gl_FragColor.rgb, greened, clamp(0.58 + turfPatch * 0.20, 0.28, 0.82));
+                 // Not on the pond bank, which has its own texture (above).
+                 gl_FragColor.rgb = mix(gl_FragColor.rgb, greened,
+                     clamp(0.58 + turfPatch * 0.20, 0.28, 0.82) * (1.0 - ${pondBankGLSL}));
 
-                 // Below the waterline the ground is a pond bed, not lawn --
-                 // without this you see bright grass straight through the
-                 // water. Keyed off world height so it follows the basin
-                 // exactly and needs no second copy of its radius.
-                 float wet = smoothstep(-0.15, -1.05, vGroundWorldPos.y);
+                 // Wet earth: a damp band a few cm above the waterline, then
+                 // the bed darkening with depth, so the water reads as deep
+                 // in the middle rather than as a tinted sheet over dry dirt.
+                 float wet = smoothstep(${W} + 0.07, ${W} - 0.03, vGroundWorldPos.y) * 0.45
+                           + smoothstep(${W} - 0.03, ${W} - 0.8, vGroundWorldPos.y) * 0.5;
                  gl_FragColor.rgb = mix(gl_FragColor.rgb,
                                         gl_FragColor.rgb * vec3(0.34, 0.40, 0.32), wet);
 
                  float r = length(vGroundWorldPos.xz);
-                 // Two-stage horizon: mix toward the fog first, then fade alpha so
-                 // the real sky shows through. A colour mix alone cannot match a
-                 // horizon that is warm toward the sun and cool away from it.
-                 #ifdef USE_FOG
-                 gl_FragColor.rgb = mix(gl_FragColor.rgb, fogColor, smoothstep(38.0, 47.0, r));
-                 #endif
+                 // Two-stage horizon: mix toward the backdrop first, then fade
+                 // alpha so the dome itself shows through. The mix target is
+                 // the atmosphere in this exact view direction -- precisely
+                 // what the dome draws behind this pixel (hazed distant land,
+                 // below the horizon) -- so the lawn runs out into the
+                 // landscape with no seam, warm toward the sun and cool and
+                 // shadowed away from it, rather than into one averaged fog
+                 // colour that matched neither side.
+                 // Branch, not just a zero weight: the lookup is three texture
+                 // reads plus trig, and the lawn fills much of the screen.
+                 if (r > 38.0) {
+                     vec3 edgeSky = atmosphereColor(normalize(vGroundWorldPos - cameraPosition));
+                     gl_FragColor.rgb = mix(gl_FragColor.rgb, edgeSky, smoothstep(38.0, 47.0, r));
+                 }
                  gl_FragColor.a *= 1.0 - smoothstep(41.0, 49.0, r);
                  // Seamless cutout for the sunken pond basin.
                  // No pond cutout any more. The lawn used to be punched
@@ -664,39 +693,39 @@ class GulmoharApp {
                 if (targetGroup) this._pickGroups.push({ group: targetGroup, data });
             });
 
-            // One InstancedMesh, one draw call, castShadow false -- 8,000
-            // clumps in the shadow pass would more than double its cost for
-            // shadows nobody could resolve at 15cm anyway. Thinned on mobile
-            // rather than removed, so the world doesn't visibly change shape
-            // by device -- just how dense the lawn reads.
-            // Denser and wider: 39m left a bare ring between the grass and the
-            // ground's own edge fade (which starts at 41), and the field was
-            // thin enough that the tan bake showed through as the dominant
-            // colour. Still one draw call, still no shadow casting.
-            // Real instanced grass cards (6 tris each) rather than procedural
-            // blades (12) -- cheaper AND better looking. Allocated at the
-            // tier's count; the adaptive loop lowers each InstancedMesh's
-            // `count` at runtime, which Three treats as a draw range, so it
-            // costs no reallocation and no matrix re-upload.
-            // Realtime grass from realtime_grass.glb is the primary dense ground cover:
-            this.grass = createGrassField(garden.grassCards, QUALITY.grassRadius, QUALITY.grassCount, {
-                targetHeight: 0.38, name: 'RealtimeGrassField'
+            // The lawn: real 3D blades (grass_blades.glb), tiled with
+            // distance-based thinning and per-tile frustum culling -- see
+            // src/scene/lawn.js. No shadow casting: thousands of 27cm blades
+            // in the shadow pass would cost more than the rest of it combined
+            // for shadows nobody could resolve. The tier sets its density; the
+            // adaptive loop scales that at runtime (_applyQualityChange).
+            // Steeper than the tier's grass count: the lawn is the scene's
+            // largest geometry, and the low tier is a phone (~0.25 of top).
+            this.lawnDensity = Math.min(1, Math.pow(QUALITY.grassCount / 46000, 1.5));
+            this.lawn = createLawn(garden.grassBlades, {
+                radius: QUALITY.grassRadius, density: this.lawnDensity
             });
-            this.scene.add(this.grass);
+            if (this.lawn) this.scene.add(this.lawn.group);
 
-            // A much sparser secondary accent layer of vegetation clumps from grass_vegitation_mix.glb
-            this.vegClumps = createGrassField(
-                garden.vegClumps, QUALITY.grassRadius, QUALITY.vegClumpCount,
-                { targetHeight: 0.45, name: 'VegetationClumps', clearMargin: 0.5 }
-            );
-            this.scene.add(this.vegClumps);
-
-            // Very rare heavy clumps from the mix, kept to a small accent count away from pathways
-            this.denseGrass = createGrassField(
-                garden.denseGrass, QUALITY.grassRadius * 0.78, QUALITY.denseGrassCount,
-                { targetHeight: 0.70, name: 'DenseGrass', clearMargin: 1.6 }
-            );
-            this.scene.add(this.denseGrass);
+            // Wild edges, from meadow_clumps.glb: the lawn is kept, the rim
+            // and the pond margin are let go to meadow, and small leafy plants
+            // break up the lawn itself.
+            const meadowTints = [0xb9c48a, 0xa6b878, 0xc8c894, 0x98ae6c].map((h) => new THREE.Color(h));
+            this.meadowRim = createGrassField(garden.meadowClumps, QUALITY.grassRadius + 1, QUALITY.vegClumpCount * 7, {
+                filter: /rostlinka_07c/, innerR: 30, targetHeight: 0.62, clearMargin: 0.5,
+                name: 'MeadowRim', tints: meadowTints, seed: 71
+            });
+            this.scene.add(this.meadowRim);
+            this.meadowPond = createGrassField(garden.meadowClumps, POND_EXTENT, QUALITY.vegClumpCount * 4, {
+                filter: /rostlinka_07c/, center: GARDEN_POINTS.POND, targetHeight: 0.72,
+                accept: (x, z) => groundHeightAt(x, z) < POND_WATER_Y + 0.42,
+                name: 'MeadowPondMargin', tints: meadowTints, seed: 72
+            });
+            this.scene.add(this.meadowPond);
+            this.lawnPlants = createGrassField(garden.meadowClumps, QUALITY.grassRadius - 2, QUALITY.vegClumpCount * 8, {
+                filter: /r12_/, targetHeight: 0.14, clearMargin: 0.3, name: 'LawnPlants', seed: 73
+            });
+            this.scene.add(this.lawnPlants);
 
             // Paintings: a 404 on paintings.json resolves to an empty list
             // rather than rejecting, so a garden with nothing hung yet is not
@@ -975,6 +1004,9 @@ class GulmoharApp {
                 o.count = Math.max(1, Math.round(o.userData.baseCount * instanceScale));
             }
         });
+        // The lawn sets its own instance counts every frame (per-tile LOD),
+        // so it takes the same scale as a blade density instead.
+        if (this.lawn) this.lawn.setDensityScale(instanceScale);
 
         this.renderer.shadowMap.needsUpdate = true;
         if (import.meta.env && import.meta.env.DEV) {
@@ -1330,13 +1362,40 @@ class GulmoharApp {
         // Sun elevation warmth factor (1 at horizon/dawn/dusk, 0 high in sky)
         const sunWarmth = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.02, 0.36);
 
-        const targetSunColor = isMorning ? C_SUN_DAWN : C_SUN_LOW;
-        const targetLightColor = isMorning ? C_SUNLIGHT_DAWN : C_SUNLIGHT_LOW;
+        // 3-way continuous hermite blend between Day, Twilight, and Night
+        const dayWeight = THREE.MathUtils.smoothstep(sky.sunAlt, 0.00, 0.24);
+        const nightWeight = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.26, 0.00);
+        const twiWeight = Math.max(0.0, 1.0 - dayWeight - nightWeight);
 
-        this.sunMesh.material.color.lerpColors(C_SUN_HIGH, targetSunColor, sunWarmth);
-        this.sunLight.color.lerpColors(C_SUNLIGHT_HIGH, targetLightColor, sunWarmth);
+        // Continuous 0 (evening) .. 1 (morning), so the haze eases between
+        // the two over the day instead of switching at noon.
+        const dawnDuskMix = THREE.MathUtils.clamp(-Math.sin(this.sunAngle - Math.PI / 2) * 1.5 + 0.5, 0.0, 1.0);
+        const atm = this.skySystem.atmosphere;
+        atm.update(this.renderer, sky.cel.sunPos, sky.sunAlt,
+            THREE.MathUtils.lerp(MIE_EVENING, MIE_MORNING, dawnDuskMix), nightWeight);
+        const A = atm.state;
+
+        // The disc is the sunlight that survives the path through the air:
+        // white high up, orange by ~5 deg, red at the horizon. The light
+        // itself keeps a little white so a red sun still reads as light
+        // falling on things rather than paint.
+        // The disc must out-shine the glare around it, which the atmosphere
+        // now renders in HDR -- at plain 0..1 colour it read as a dull beige
+        // coin pasted on a bright sky. Scaled by how much direct sunlight
+        // survives the air: the tone mapper rolls a high sun to white, while
+        // near the horizon, where it is genuinely dimmed and reddened, it
+        // keeps its orange.
+        const discBoost = (6.0 + 40.0 * A.sunStrength) * Math.sqrt(A.adapt);
+        this.sunMesh.material.color.copy(A.sunColor).multiplyScalar(discBoost);
+        this.sunLight.color.copy(A.sunColor).lerp(C_WHITE, 0.15);
 
         this.sunMesh.position.copy(sky.cel.sunPos);
+        // The disc texture is centred on the sphere's local +X (where
+        // SphereGeometry puts u = 0.5); left unrotated, the texture's
+        // transparent rim wrapped onto the visible face as a dark seam down
+        // the middle of the sun. Face +X at the viewer.
+        this.sunMesh.lookAt(0, 0, 0);
+        this.sunMesh.rotateY(-Math.PI / 2);
         this.moonMesh.position.copy(sky.cel.moonPos);
         this.moonMesh.lookAt(0, 0, 0);
 
@@ -1357,8 +1416,8 @@ class GulmoharApp {
         this.sunMesh.material.opacity = sunFade;
         this.sunMesh.visible = sunFade > 0.001;
         if (this.sunGlow) {
-            this.sunGlow.material.color.lerpColors(new THREE.Color(0xfffae0), targetSunColor, sunWarmth);
-            this.sunGlow.material.opacity = sunFade * (0.45 + 0.35 * (1.0 - sunWarmth));
+            this.sunGlow.material.color.copy(A.sunColor);
+            this.sunGlow.material.opacity = sunFade * (0.30 + 0.30 * (1.0 - sunWarmth));
             this.sunGlow.visible = sunFade > 0.005;
         }
         const moonFade = THREE.MathUtils.smoothstep(sky.cel.moonAlt, -0.035, 0.035);
@@ -1433,40 +1492,37 @@ class GulmoharApp {
         this.moonMesh.material.emissive.copy(this.moonMesh.material.color);
         this.moonLight.color.lerpColors(C_MOONLIGHT_HIGH, C_MOONLIGHT_LOW, moonWarmth);
 
-        // Smooth twilight palette cross-fade (Dawn vs Dusk)
-        const dawnDuskMix = THREE.MathUtils.clamp(-Math.sin(this.sunAngle - Math.PI / 2) * 1.5 + 0.5, 0.0, 1.0);
-        _twiZenith.lerpColors(C_DUSK_ZENITH, C_DAWN_ZENITH, dawnDuskMix);
-        _twiMid.lerpColors(C_DUSK_MID, C_DAWN_MID, dawnDuskMix);
-        _twiHorizon.lerpColors(C_DUSK_HORIZON, C_DAWN_HORIZON, dawnDuskMix);
-        _twiHorizonOpp.lerpColors(C_DUSK_HORIZON_OPP, C_DAWN_HORIZON_OPP, dawnDuskMix);
-
-        // 3-way continuous hermite blend between Day, Twilight, and Night
-        const dayWeight = THREE.MathUtils.smoothstep(sky.sunAlt, 0.00, 0.24);
-        const nightWeight = 1.0 - THREE.MathUtils.smoothstep(sky.sunAlt, -0.26, 0.00);
-        const twiWeight = Math.max(0.0, 1.0 - dayWeight - nightWeight);
-
-        blend3Colors(_skyColScratch, C_DAY_ZENITH, dayWeight, _twiZenith, twiWeight, C_NIGHT_ZENITH, nightWeight);
-        blend3Colors(_midColScratch, C_DAY_MID, dayWeight, _twiMid, twiWeight, C_NIGHT_MID, nightWeight);
-        blend3Colors(_horizColScratch, C_DAY_HORIZON, dayWeight, _twiHorizon, twiWeight, C_NIGHT_HORIZON, nightWeight);
-        blend3Colors(_horizOppScratch, C_DAY_HORIZON_OPP, dayWeight, _twiHorizonOpp, twiWeight, C_NIGHT_HORIZON, nightWeight);
-
         const u = this.skySystem.skyDomeMat.uniforms;
-        u.uZenithColor.value.copy(_skyColScratch);
-        if (u.uMidColor) u.uMidColor.value.copy(_midColScratch);
-        u.uHorizonColor.value.copy(_horizColScratch);
-        if (u.uHorizonOpposite) u.uHorizonOpposite.value.copy(_horizOppScratch);
-        if (u.uSunColor) u.uSunColor.value.copy(this.sunMesh.material.color);
-        this.scene.fog.color.copy(_horizColScratch);
+        u.uSunColor.value.copy(A.sunColor);
+        // Only reaches a few percent within the garden's 50m, but it is what
+        // distant geometry reads against, so it tracks the real horizon.
+        this.scene.fog.color.copy(C_NIGHT_HORIZON).multiplyScalar(nightWeight).add(A.horizon);
 
-        // Rich atmospheric ambient lighting
-        const twiHemiSky = isMorning ? C_HEMI_DAWN : C_HEMI_DUSK;
+        // Sky fill takes its HUE from the sky that is actually overhead --
+        // blue at noon, lavender-blue through twilight, never the crimson the
+        // old palette used. That is what gives low sun its warm-light,
+        // cool-shadow look. Brightness keeps the tuned per-phase levels.
         const twiHemiGnd = isMorning ? C_HEMI_GROUND_DAWN : C_HEMI_GROUND_DUSK;
-        blend3Colors(_hemiSkyScratch, C_HEMI_DAY, dayWeight, twiHemiSky, twiWeight, C_HEMI_NIGHT, nightWeight);
+        const litWeight = dayWeight + twiWeight;
+        if (litWeight > 1e-4) {
+            // Twilight gets more than the old crimson's luminance: blue-lavender
+            // light on a green lawn multiplies out far darker than red light
+            // on the rust-tinted lawn did, and read as a black ground.
+            const targetLum = (dayWeight * luma(C_HEMI_DAY) + twiWeight * TWILIGHT_FILL_LUM) / litWeight;
+            _skyFillScratch.copy(A.midSky).lerp(A.zenith, 0.35);
+            const l = luma(_skyFillScratch);
+            if (l > 1e-6) _skyFillScratch.multiplyScalar(targetLum / l);
+            else _skyFillScratch.copy(C_HEMI_NIGHT);
+        } else {
+            _skyFillScratch.copy(C_HEMI_NIGHT);
+        }
+        _hemiSkyScratch.copy(_skyFillScratch).lerp(C_HEMI_NIGHT, nightWeight);
         blend3Colors(_hemiGndScratch, C_HEMI_GROUND_DAY, dayWeight, twiHemiGnd, twiWeight, C_HEMI_GROUND_NIGHT, nightWeight);
 
-        // Night keeps starlight fill; day keeps its contrast; twilight bathes everything in sunset warmth
-        _ambientColScratch.lerpColors(C_HEMI_NIGHT, twiHemiSky, twiWeight);
-        if (dayWeight > 0.01) _ambientColScratch.lerp(new THREE.Color(0xfff5ea), dayWeight);
+        // Night keeps starlight fill; day keeps its neutral warmth; twilight
+        // takes the sky's own colour.
+        _ambientColScratch.lerpColors(C_HEMI_NIGHT, _skyFillScratch, twiWeight);
+        if (dayWeight > 0.01) _ambientColScratch.lerp(C_AMBIENT_DAY, dayWeight);
         this.ambientLight.color.copy(_ambientColScratch);
         this.ambientLight.intensity = 0.12 * nightWeight + 0.22 * twiWeight + 0.16 * dayWeight;
 
@@ -1474,9 +1530,27 @@ class GulmoharApp {
         this.hemiLight.groundColor.copy(_hemiGndScratch);
         this.hemiLight.intensity = 0.42 * nightWeight + 0.65 * twiWeight + 0.58 * dayWeight;
 
-        // Ground floor tint seamlessly matching celestial lighting
-        const twiFloorColor = isMorning ? C_FLOOR_DAWN : C_FLOOR_TWILIGHT;
-        blend3Colors(this.groundMat.color, C_FLOOR_NOON, dayWeight, twiFloorColor, twiWeight, C_FLOOR_MIDNIGHT, nightWeight);
+        blend3Colors(this.groundMat.color, C_FLOOR_NOON, dayWeight, C_FLOOR_TWILIGHT, twiWeight, C_FLOOR_MIDNIGHT, nightWeight);
+
+        // The pond's reflection was written to take the sky's colours but was
+        // never handed them, so it reflected a noon sky all night.
+        const lc = this._lightCtx || (this._lightCtx = {
+            skyReflect: new THREE.Color(), horizonReflect: new THREE.Color(),
+            sunDir: new THREE.Vector3(), sunColor: new THREE.Color(), moonDir: new THREE.Vector3(),
+            moonColor: new THREE.Color()
+        });
+        lc.skyReflect.copy(C_NIGHT_ZENITH).multiplyScalar(nightWeight).add(A.midSky);
+        lc.horizonReflect.copy(C_NIGHT_HORIZON).multiplyScalar(nightWeight).add(A.horizon);
+        lc.sunDir.copy(sky.cel.sunPos);
+        lc.sunColor.copy(this.sunLight.color);
+        lc.sunIntensity = this.sunLight.intensity;
+        lc.moonDir.copy(_moonDirScratch);
+        lc.moonColor.copy(this.moonLight.color);
+        lc.moonIntensity = this.moonLight.intensity;
+        lc.dayWeight = dayWeight;
+        lc.twiWeight = twiWeight;
+        lc.nightWeight = nightWeight;
+        lc.isMorning = isMorning;
 
         // The HUD carries two glass treatments (index.html's [data-tod] tokens)
         // because no single one is legible over both a pale noon sky and an
@@ -1490,7 +1564,7 @@ class GulmoharApp {
         }
 
         if (!this.motionPaused) {
-            if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt);
+            if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt, this._lightCtx);
             if (this.dust) this.dust.rotation.y += 0.0002;
         }
 
@@ -1501,6 +1575,12 @@ class GulmoharApp {
             this.fpsNavigator.update(dt);
         } else {
             this.controls.update();
+        }
+        // After the camera has moved for this frame, so tile culling and the
+        // blades' distance thinning use the view actually being rendered.
+        if (this.lawn) {
+            this.camera.updateMatrixWorld();
+            this.lawn.update(this.camera);
         }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from

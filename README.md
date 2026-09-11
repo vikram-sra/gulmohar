@@ -1,9 +1,9 @@
 # Gulmohar
 
 An interactive botanical garden — a Royal Poinciana (gulmohar) at the centre,
-a pond with a waterfall and a Japanese maple in two corners, a gazebo in the
-third, and a winding path connecting them — under an astronomically driven
-sky, plus two flat pages: a work list and an artist bio.
+a pond in one corner, a gazebo in another, and a winding path connecting
+them — under an astronomically driven, physically based sky, plus two flat
+pages: a work list and an artist bio.
 
 ```bash
 npm install
@@ -55,14 +55,35 @@ screen readers, so the site needs a text route to the same material.
 
 ## The garden
 
-Four landmarks, positioned in `GARDEN_POINTS` (`src/scene/garden.js`):
+Three landmarks, positioned in `GARDEN_POINTS` (`src/scene/garden.js`), with
+a banyan and a mango outside the path loop:
 
-| Landmark | Position | Model |
+| Landmark | Position | Source |
 |---|---|---|
 | Gulmohar (centrepiece) | `(0, 0, 0)` | `models/gulmohar.glb` |
-| Pond with waterfall | `(-23, 0, -19)` | `models/pond.glb` |
+| Pond | `(-23, 0, -19)` | `src/scene/pondTerrain.js` + `textures/pond_bed.jpg` |
 | Gazebo | `(22, 0, 18)` | `models/gazebo.glb` |
-| Japanese maple | `(23, 0, -21)` | `models/maple.glb` |
+
+**The pond** is the basin from *Low Poly Tree Scene Free* by Nicholas-3D
+(CC-BY-4.0, `3d_Assets/NEW`) — its `Ground` mesh only; the scene's trees and
+grass are not used. `scripts/bake-pond-terrain.py` rasterises it into a height
+grid (`pondTerrain.js`) that `groundHeightAt()` samples, so the lawn plane
+*is* the basin: grass, leaves, walking and painting placement all follow it,
+with no second surface to seam against. The water is a flat sheet at
+`POND_WATER_Y` that discards wherever the bed rises above it — the shoreline is
+exactly where water meets ground, feathered over its first 10 cm of depth.
+
+**The lawn** (`src/scene/lawn.js`) is real 3D blades from
+`realistics_grass_06.glb` (`scripts/prepare-grass-blades.mjs`): one tuft of
+2,184 blades, overlapped across the garden. Blades are index-sorted by a random
+key so any fraction is a draw range; the vertex shader thins them continuously
+with distance, each tuft is drawn at the smallest range that covers it, tufts
+outside the frustum are skipped, and every blade reads a baked garden mask so
+path, pond and tree bases need no special placement. ~500k triangles in the
+landing view at the top tier, ~110k at the low tier. Wild accents — meadow clumps at the rim and along the
+pond margin, small leafy plants in the lawn — come from `meadow_clumps.glb`
+(`simple_grass_chunks` by 3dhdscan, CC-BY-4.0, via
+`scripts/extract-meadow-clumps.mjs`).
 
 `models/floor_leaves.glb` isn't a landmark — `setupFloorEverywhere()` pulls
 individual leaf and micro-plant meshes out of it and scatters them as
@@ -70,7 +91,7 @@ individual leaf and micro-plant meshes out of it and scatters them as
 `ground_close` material's colour/normal map to retexture the ground plane
 itself.
 
-A closed Catmull-Rom loop (`createGardenPathway()`) connects the four,
+A closed Catmull-Rom loop (`createGardenPathway()`) connects the landmarks,
 built the same way as everything else that needs a ribbon on the ground: a
 curve, sampled, offset left/right by half the path width, triangulated. Tube
 geometry along the same curve gives it curbs.
@@ -107,8 +128,15 @@ always read from the window global.
 
 `src/sky/celestial.js` runs a Toronto-based sun/moon ephemeris, driving:
 
-- Sky dome gradient (paper white → indigo night via a continuous 3-way
-  `smoothstep` blend through twilight — no abrupt step)
+- The sky itself, from `src/sky/atmosphere.js`: Rayleigh + Mie + ozone single
+  scattering in a spherical atmosphere with Hillaire's (2020) multiple-scattering
+  approximation. It is baked into a 128×128 sky-view texture only when the sun
+  moves, and a CPU copy of the same integral supplies the sunlight colour, sky
+  fill, fog and pond reflections. Twilight comes out as observed — a yellow-orange
+  arch toward the sun, a blue (ozone) zenith, the Earth's shadow and pink Belt
+  of Venus opposite, the purple light at −2…−6° — and distant land below the
+  horizon is hazed by the same air, so the lawn fades into it with no seam.
+  Mornings run clearer than evenings (aerosol load).
 - Star field and Milky Way panorama (fade starts at −0.28 sun altitude for
   realistic nautical/astronomical twilight)
 - Directional sun/moon lights
@@ -130,9 +158,8 @@ pond shader uses them to:
 
 - Fresnel-reflect the actual sky/horizon colour (not a hardcoded blue)
 - Switch specular glint between sun and moon based on time of day
-- Lerp water base colour: emerald (day) → bronze-amber (dusk) → rosy amber
-  (dawn) → indigo (night)
-- Darken the cascade waterfall to near-black at night with a moonlit foam tint
+- Lerp water body colour: emerald (day) → darker teal (twilight) → indigo
+  (night); the sunset colour itself comes from the reflected sky
 
 ### Wind
 
@@ -226,10 +253,12 @@ that one ships without it):
 |---|---|---|---|
 | `gulmohar.glb` | 394,278 (unchanged) | 55.7 → 35.7 MB | 33.4 → 14.5 MB |
 | `gazebo.glb` | 5,196 (unchanged) | 256.0 → 16.0 MB | 39.3 → 4.1 MB |
-| `pond.glb` | 3,698 (unchanged) | 28.0 → 12.0 MB | 10.6 → 3.3 MB |
-| `maple.glb` | 1,252,651 → 291,322 | 13.3 MB (unchanged) | 97.3 → 11.9 MB |
 | `floor_leaves.glb` | 518,432 → 62,836 (base mesh) | 85.3 → 21.3 MB | 49.3 → 4.2 MB |
-| **Total (disk)** | | | **231 → 38 MB** |
+| `grass_blades.glb` | 6,552 (one tuft; LOD in `lawn.js`) | 5.3 MB | 0.7 → 0.8 MB |
+| `meadow_clumps.glb` | 68 (4 card types) | 6.7 MB | 140 MB zip → 0.5 MB |
+
+The old `pond.glb` (rocks and waterfall) and `maple.glb` have since been
+removed, along with the `grass_cards` / `veg_clumps` / `dense_grass` lawn.
 
 `floor_leaves.glb`'s instance counts were also cut in `garden.js`
 (`countPerMesh` 125→45, `countPerPlant` 40→16), so its *in-scene* cost fell

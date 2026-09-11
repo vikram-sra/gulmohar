@@ -3,7 +3,10 @@ import { isGroundClear, groundHeightAt } from './garden.js';
 import { windUniforms } from './wind.js';
 
 // ---------------------------------------------------------------------------
-// Grass.
+// Instanced grass CARDS -- now the wild accents only: meadow clumps at the
+// rim, along the pond margin, and small leafy plants in the lawn, all from
+// meadow_clumps.glb (simple_grass_chunks, see scripts/extract-meadow-clumps.mjs).
+// The lawn itself is real 3D blades now; see lawn.js. History below.
 //
 // Previously this generated blade geometry procedurally -- 4 blades of 3
 // triangles each, tinted by a palette. It read as pale shards no matter how it
@@ -141,28 +144,35 @@ diffuseColor.rgb *= contactAO;
 /**
  * Builds the grass field from the extracted card asset.
  *
- * @param {object} cardsGltf  loaded models/grass_cards.glb (6 card meshes)
+ * @param {object} cardsGltf  a loaded card asset (models/meadow_clumps.glb)
  * @param {number} outerR     radius of the disc grass is scattered within
  * @param {number} count      total tufts across all card types
  * @returns {THREE.Group}     one InstancedMesh per card type
  */
 export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {}) {
-    const { targetHeight = GRASS_HEIGHT_M, name = 'GrassField', clearMargin = 0 } = opts;
+    const {
+        targetHeight = GRASS_HEIGHT_M, name = 'GrassField', clearMargin = 0,
+        filter = null,        // RegExp on mesh name: which card types to use
+        innerR = 0,           // scatter in a ring rather than the full disc
+        center = null,        // { x, z }: scatter around this instead of the origin
+        accept = null,        // (x, z) => bool, on top of isGroundClear
+        tints = TINT, seed = 20260906
+    } = opts;
     const group = new THREE.Group();
     group.name = name;
 
     const cards = [];
     if (cardsGltf && cardsGltf.scene) {
         cardsGltf.scene.traverse((child) => {
-            if (child.isMesh && child.geometry && child.material) cards.push(child);
+            if (child.isMesh && child.geometry && child.material && (!filter || filter.test(child.name))) cards.push(child);
         });
     }
     if (cards.length === 0) {
-        console.warn('[grass] no cards in grass_cards.glb -- field will be empty');
+        console.warn(`[grass] no cards for ${name} -- field will be empty`);
         return group;
     }
 
-    const rand = mulberry32(20260906);
+    const rand = mulberry32(seed);
     const perCard = Math.ceil(count / cards.length);
     const dummy = new THREE.Object3D();
     const color = new THREE.Color();
@@ -184,7 +194,7 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
 
         const material = card.material.clone();
         material.side = THREE.DoubleSide;      // crossed quads, read from every angle
-        // Respect authored alphaTest from glTF assets (veg_clumps is 0.11, dense_grass is 0.05).
+        // Respect an authored alphaTest; the meadow clumps are BLEND, so they get 0.2.
         material.alphaTest = material.alphaTest > 0 ? material.alphaTest : 0.2;
         material.transparent = false;          // cutout, not blended -- keeps depth sane
         material.depthWrite = true;
@@ -200,10 +210,13 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
         const maxAttempts = perCard * 4;
         while (placed < perCard && attempts < maxAttempts) {
             attempts++;
-            const r = Math.sqrt(rand()) * outerR;   // even area density, not centre-clumped
+            // Even area density across the disc or ring, not centre-clumped.
+            const r = Math.sqrt(innerR * innerR + rand() * (outerR * outerR - innerR * innerR));
             const theta = rand() * Math.PI * 2;
-            const x = Math.cos(theta) * r, z = Math.sin(theta) * r;
+            const x = Math.cos(theta) * r + (center ? center.x : 0);
+            const z = Math.sin(theta) * r + (center ? center.z : 0);
             if (!isGroundClear(x, z, clearMargin)) continue;
+            if (accept && !accept(x, z)) continue;
 
             dummy.position.set(x, groundHeightAt(x, z), z);
             dummy.rotation.set(0, rand() * Math.PI * 2, 0);
@@ -212,7 +225,7 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
             dummy.updateMatrix();
             mesh.setMatrixAt(placed, dummy.matrix);
 
-            color.copy(TINT[Math.floor(rand() * TINT.length)])
+            color.copy(tints[Math.floor(rand() * tints.length)])
                 .offsetHSL((rand() - 0.5) * 0.02, (rand() - 0.5) * 0.04, (rand() - 0.5) * 0.05);
             instanceColors[placed * 3] = color.r;
             instanceColors[placed * 3 + 1] = color.g;
@@ -230,7 +243,7 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
         // Left alone, the whole field pops out the moment that origin card
         // leaves frame, so it has to be widened by hand to the real extent.
         geometry.computeBoundingSphere();
-        geometry.boundingSphere.center.set(0, 0, 0);
+        geometry.boundingSphere.center.set(center ? center.x : 0, 0, center ? center.z : 0);
         geometry.boundingSphere.radius = outerR + 2;
         mesh.frustumCulled = true;
 

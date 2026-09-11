@@ -1,21 +1,19 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { getAssetUrl } from '../utils/paths.js';
 import { isFoliageForWind, injectFoliageWind, createWindEnvelope, updateWindEnvelope } from './wind.js';
 import { QUALITY } from '../quality.js';
+import { POND_TERRAIN } from './pondTerrain.js';
 
 // Garden layout coordinates:
 // - Center: Gulmohar Tree (0, 0, 0)
-// - Top-Left: Pond with Waterfalls (-23, 0, -19)
+// - Top-Left: Pond (-23, 0, -19)
 // - Bottom-Right: Gazebo (+22, 0, +18)
-// - Top-Right: Maple Tree (+23, 0, -21)
 export const GARDEN_POINTS = {
     GULMOHAR: new THREE.Vector3(0, 0, 0),
     POND: new THREE.Vector3(-23.0, 0, -19.0),
-    GAZEBO: new THREE.Vector3(22.0, 0, 18.0),
-    MAPLE: new THREE.Vector3(23.0, 0, -21.0)
+    GAZEBO: new THREE.Vector3(22.0, 0, 18.0)
 };
 
 // The path loop's own shape (createGardenPathway, below) -- pulled to module
@@ -24,7 +22,6 @@ export const GARDEN_POINTS = {
 // re-type the pond's coordinates.
 const PATH_BASE_R = 21.0;
 const PATH_WIDTH = 2.4;
-const POND_CLEAR_R = 10.5;   // scatter grass and plants up to the pond perimeter
 const GAZEBO_CLEAR_R = 5.2;
 
 function angDiff(a, b) {
@@ -48,8 +45,10 @@ export function pathWidthAt(theta) {
 function pathRadiusAt(theta) {
     let r = PATH_BASE_R;
 
-    // 1. Maple Tree (deg 317.6° / 5.54 rad, trunk at 31.1m) - sweeps outward right by the trunk
-    r += 7.8 * Math.exp(-Math.pow(angDiff(theta, 5.54) / 0.44, 2));
+    // 1. Open north-east lawn (deg 317.6° / 5.54 rad). Swept out 7.8m around
+    // the maple's trunk while there was one; a gentle lobe keeps the S-curve
+    // between the two inward meanders that flank it.
+    r += 2.4 * Math.exp(-Math.pow(angDiff(theta, 5.54) / 0.44, 2));
 
     // 2. Gazebo (deg 39.3° / 0.69 rad) - sweeps outwards flush to the gazebo entrance steps
     r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 0.69) / 0.46, 2));
@@ -57,7 +56,7 @@ function pathRadiusAt(theta) {
     // 3. Banyan Tree (deg 152° / 2.65 rad, trunk at 27.0m) - curves beside the trunk & root flare
     r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 2.65) / 0.42, 2));
 
-    // 4. Pond Shoreline (deg 219.6° / 3.84 rad) - skirts along the stepping stones & front rocks
+    // 4. Pond Shoreline (deg 219.6° / 3.84 rad) - skirts along the pond's near bank
     r -= 2.0 * Math.exp(-Math.pow(angDiff(theta, 3.84) / 0.35, 2));
 
     // 5. Mango Tree (deg 252° / 4.40 rad, trunk at 25.5m) - winds beside the trunk under canopy
@@ -65,8 +64,8 @@ function pathRadiusAt(theta) {
 
     // Inward meanders between groves for dynamic S-curves:
     r -= 2.8 * Math.exp(-Math.pow(angDiff(theta, 1.67) / 0.48, 2)); // Between Gazebo & Banyan (95°)
-    r -= 2.2 * Math.exp(-Math.pow(angDiff(theta, 4.95) / 0.42, 2)); // Between Mango & Maple (284°)
-    r -= 2.6 * Math.exp(-Math.pow(angDiff(theta, 6.20) / 0.45, 2)); // Between Maple & Gazebo (355°)
+    r -= 2.2 * Math.exp(-Math.pow(angDiff(theta, 4.95) / 0.42, 2)); // Between Mango & the NE lawn (284°)
+    r -= 2.6 * Math.exp(-Math.pow(angDiff(theta, 6.20) / 0.45, 2)); // Between the NE lawn & Gazebo (355°)
 
     // Multi-frequency sinusoidal waviness (winding, undulating meanders):
     r += Math.sin(theta * 3 + 0.6) * 1.8;
@@ -77,65 +76,76 @@ function pathRadiusAt(theta) {
     return r;
 }
 
-// Measured against the pond scan itself. Its water surface sits at y = -0.45m.
-// A gentle 48cm hollow brings the lawn seamlessly down to meet the rock perimeter
-// without artificial 3-meter crater walls or raised volcanic berms.
-const POND_BED_DEPTH = 0.48;    // bed gently settles 48cm below ground
-const POND_BED_R = 6.2;         // bed stays flat out to here
-const POND_RIM_W = 3.5;         // smooth 3.5m bank transition
-const POND_BANK_H = 0.0;        // level lawn, no artificial crater wall
-const POND_BANK_R = 10.5;       // bank smoothly blends into flat lawn here
-
-function smoothstep01(t) {
-    const c = Math.min(1, Math.max(0, t));
-    return c * c * (3 - 2 * c);
-}
-
-/**
- * Irregular outline for the pond, as a multiplier on its nominal radius.
- *
- * A perfectly circular dig is invisible at eye level and unmistakable from
- * above -- it reads as a crater stamped into the lawn rather than as water
- * that collected in a hollow. Three phase-shifted harmonics give a lopsided,
- * organic edge instead. All are integer multiples of theta, so the outline
- * closes on itself with no seam, and it is deterministic, so the basin, the
- * bank and the water sheet all agree on exactly the same shape.
- */
-function pondShapeAt(theta) {
-    return 1
-        + Math.sin(theta * 2 + 0.7) * 0.17
-        + Math.sin(theta * 3 - 1.9) * 0.10
-        + Math.sin(theta * 5 + 2.6) * 0.06;
-}
-
-const POND_ROT_Y = 2.35;
+// The pond is the basin from "Low Poly Tree Scene Free" (3d_Assets/NEW),
+// baked to a height grid by scripts/bake-pond-terrain.py -- its Ground mesh
+// only, none of that scene's trees or grass. It is a height field rather than
+// a mesh because the lawn plane itself samples groundHeightAt(): the lawn,
+// grass, leaves, walking and painting placement then all follow the real
+// basin, with no second surface to seam or z-fight against. The water is a
+// flat sheet at POND_WATER_Y; where it meets the basin is the shoreline.
+const POND_ROT_Y = 2.35;         // faces the pond's long side into the garden
 const _pondCos = Math.cos(POND_ROT_Y);
 const _pondSin = Math.sin(POND_ROT_Y);
 
+export const POND_WATER_Y = POND_TERRAIN.waterY;
+export const POND_EXTENT = POND_TERRAIN.extent;
+const POND_N = POND_TERRAIN.n;
+const POND_HEIGHTS = (() => {
+    const bin = atob(POND_TERRAIN.data);
+    const mm = new Int16Array(bin.length / 2);
+    for (let i = 0; i < mm.length; i++) {
+        const lo = bin.charCodeAt(i * 2), hi = bin.charCodeAt(i * 2 + 1);
+        const v = lo | (hi << 8);
+        mm[i] = v > 32767 ? v - 65536 : v;
+    }
+    const h = new Float32Array(mm.length);
+    for (let i = 0; i < mm.length; i++) h[i] = mm[i] / 1000;
+    return h;
+})();
+const POND_STEP = (2 * POND_EXTENT) / (POND_N - 1);
+
+/** Pond basin height at pond-local (lx, lz), bilinear; 0 outside the grid. */
+function pondHeightLocal(lx, lz) {
+    const fx = (lx + POND_EXTENT) / POND_STEP, fz = (lz + POND_EXTENT) / POND_STEP;
+    if (fx < 0 || fz < 0 || fx >= POND_N - 1 || fz >= POND_N - 1) return 0;
+    const i = Math.floor(fx), j = Math.floor(fz);
+    const tx = fx - i, tz = fz - j;
+    const a = POND_HEIGHTS[i * POND_N + j], b = POND_HEIGHTS[(i + 1) * POND_N + j];
+    const c = POND_HEIGHTS[i * POND_N + j + 1], d = POND_HEIGHTS[(i + 1) * POND_N + j + 1];
+    return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
+}
+
 export function groundHeightAt(x, z) {
     const dx = x - GARDEN_POINTS.POND.x, dz = z - GARDEN_POINTS.POND.z;
-    const d = Math.hypot(dx, dz);
-    if (d > 16.0) return 0.0;
-
-    // Transform into pond's local orientation
+    if (Math.abs(dx) > POND_EXTENT * 1.5 || Math.abs(dz) > POND_EXTENT * 1.5) return 0.0;
+    // Into the pond's local frame -- the same one its group is rotated by.
     const lx = _pondCos * dx - _pondSin * dz;
     const lz = _pondSin * dx + _pondCos * dz;
+    return pondHeightLocal(lx, lz);
+}
 
-    // 1. Grassy hillside embankment rising behind the high rock wall
-    let hillH = 0.0;
-    const hillD = Math.hypot((lx - 10.5) * 0.70, (lz - 1.2) * 0.90);
-    if (hillD < 6.0) {
-        hillH = 1.6 * Math.pow(1.0 - hillD / 6.0, 1.4);
+/**
+ * The basin heights as a texture, pond-local, for the water's shoreline fade
+ * and depth tint. Built once, on first use (it needs no renderer).
+ */
+let _pondHeightTexture = null;
+export function getPondHeightTexture() {
+    if (_pondHeightTexture) return _pondHeightTexture;
+    const data = new Uint16Array(POND_N * POND_N * 4);
+    for (let j = 0; j < POND_N; j++) {
+        for (let i = 0; i < POND_N; i++) {
+            // DataTexture rows run along v (lz), columns along u (lx).
+            const o = (j * POND_N + i) * 4;
+            data[o] = THREE.DataUtils.toHalfFloat(POND_HEIGHTS[i * POND_N + j]);
+            data[o + 3] = THREE.DataUtils.toHalfFloat(1);
+        }
     }
-
-    // 2. Sunken pond basin bed cradling the water pool
-    let basinH = 0.0;
-    const basinD = Math.hypot(lx - 0.4, (lz - 0.8) * 1.15);
-    if (basinD < 7.5) {
-        basinH = -0.48 * (1.0 - smoothstep01((basinD - 3.5) / 4.0));
-    }
-
-    return hillH + basinH;
+    const tex = new THREE.DataTexture(data, POND_N, POND_N, THREE.RGBAFormat, THREE.HalfFloatType);
+    tex.minFilter = tex.magFilter = THREE.LinearFilter;
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.needsUpdate = true;
+    _pondHeightTexture = tex;
+    return tex;
 }
 
 /**
@@ -145,11 +155,13 @@ export function groundHeightAt(x, z) {
  * flower bed) that should keep a little more distance than grass does.
  */
 export function isGroundClear(x, z, margin = 0) {
-    const dx = x - GARDEN_POINTS.POND.x, dz = z - GARDEN_POINTS.POND.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 12.0 + margin) return false;
+    // Keyed on height, not a radius, so it follows the pond's real shoreline:
+    // lawn grows down the banks to just above the water. A margin keeps a
+    // wider berth, as a height above the waterline (banks rise ~0.3m per m),
+    // capped just below lawn level so a big margin can never exclude the
+    // flat lawn itself -- only the basin.
+    if (groundHeightAt(x, z) < Math.min(POND_WATER_Y + 0.06 + margin * 0.3, -0.03)) return false;
     if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
-    if (Math.hypot(x - GARDEN_POINTS.MAPLE.x, z - GARDEN_POINTS.MAPLE.z) < 2.4 + margin) return false;
     if (Math.hypot(x - (-23.8), z - 12.7) < 10.2 + margin) return false; // Banyan trunk & sprawling root spread (1.5x)
     if (Math.hypot(x - (-7.9), z - (-24.3)) < 2.0 + margin) return false; // Mango trunk
     const theta = Math.atan2(z, x);
@@ -190,16 +202,13 @@ export function loadGarden(loadingManager) {
     return Promise.all([
         loadGLTF('models/gulmohar.glb'),
         loadGLTF('models/gazebo.glb'),
-        loadGLTF('models/pond.glb'),
-        loadGLTF('models/maple.glb'),
         loadGLTF('models/floor_leaves.glb'),
-        loadGLTF('models/grass_cards.glb'),
-        loadGLTF('models/veg_clumps.glb'),
-        loadGLTF('models/dense_grass.glb'),
+        loadGLTF('models/grass_blades.glb'),
+        loadGLTF('models/meadow_clumps.glb'),
         QUALITY.backgroundTrees > 0 ? loadGLTF('models/banyan.glb') : Promise.resolve(null),
         QUALITY.backgroundTrees > 0 ? loadGLTF('models/mango.glb') : Promise.resolve(null)
-    ]).then(([gulmoharGltf, gazeboGltf, pondGltf, mapleGltf, leavesGltf,
-              grassCardsGltf, vegClumpsGltf, denseGrassGltf, banyanGltf, mangoGltf]) => {
+    ]).then(([gulmoharGltf, gazeboGltf, leavesGltf, grassBladesGltf, meadowClumpsGltf,
+              banyanGltf, mangoGltf]) => {
         // 1. Gulmohar Centerpiece Tree (At 0,0,0)
         const gulmoharObj = setupGulmohar(gulmoharGltf);
         gardenGroup.add(gulmoharObj.model);
@@ -210,27 +219,23 @@ export function loadGarden(loadingManager) {
         gardenGroup.add(gazeboObj.model);
         interactives.push(gazeboObj.interactive);
 
-        // 3. Pond with Waterfalls (Top-Left corner)
-        const pondObj = setupPond(pondGltf);
+        // 3. Pond (Top-Left corner) -- no model to load: the basin is baked
+        // into groundHeightAt, and the water is built here.
+        const pondObj = setupPond();
         gardenGroup.add(pondObj.model);
         interactives.push(pondObj.interactive);
         if (pondObj.update) updateables.push(pondObj.update);
 
-        // 4. Maple Tree (Top-Right corner)
-        const mapleObj = setupMaple(mapleGltf);
-        gardenGroup.add(mapleObj.model);
-        interactives.push(mapleObj.interactive);
-
-        // 5. Floor Detailing with floor_leaves.glb everywhere
+        // 4. Floor Detailing with floor_leaves.glb everywhere
         const floorResult = setupFloorEverywhere(leavesGltf);
         gardenGroup.add(floorResult.group);
 
-        // 6. Curving Garden Path (centered at origin)
+        // 5. Curving Garden Path (centered at origin)
         const pathway = createGardenPathway();
         gardenGroup.add(pathway);
 
-        // 7. Background trees, outside the path loop -- hoverable and
-        // clickable like the four landmarks, so they push into `interactives`.
+        // 6. Background trees, outside the path loop -- hoverable and
+        // clickable like the three landmarks, so they push into `interactives`.
         gardenGroup.add(setupBackgroundTrees(banyanGltf, mangoGltf, interactives));
 
         const windEnv = createWindEnvelope();
@@ -238,9 +243,8 @@ export function loadGarden(loadingManager) {
         return {
             group: gardenGroup,
             interactives,
-            grassCards: grassCardsGltf,
-            vegClumps: vegClumpsGltf,
-            denseGrass: denseGrassGltf,
+            grassBlades: grassBladesGltf,
+            meadowClumps: meadowClumpsGltf,
             groundTexture: floorResult.groundTexture,
             groundNormal: floorResult.groundNormal,
             update: (time, delta, lightCtx) => {
@@ -375,67 +379,6 @@ function createContactShadow(diameter, y = 0.03) {
     return decal;
 }
 
-/**
- * Collapse a model's static meshes into one mesh per material.
- *
- * The pond arrives as 405 separate meshes sharing four materials, and they are
- * the whole reason the scene's draw calls swing between 27 and 459 depending on
- * which way the camera faces. Merging is only safe *after* setupPond's
- * name-based material lookup has run -- `water`, `riples` and `plane.002` are
- * identified by node name, and merging first would destroy those names. So this
- * runs last, and skips anything the caller still needs to address individually.
- *
- * Transforms are baked relative to `root`, not to the world, so the group's own
- * placement and scale still apply afterwards.
- */
-function mergeStaticByMaterial(root, skip = new Set()) {
-    root.updateMatrixWorld(true);
-    const inv = root.matrixWorld.clone().invert();
-    const groups = new Map();
-    const originals = [];
-
-    root.traverse((child) => {
-        // Hidden meshes must not be merged. Merging builds a NEW mesh that is
-        // visible by default, so folding an invisible child into it silently
-        // resurrects it -- which is what put the pond's removed ripple glint
-        // cards back on screen as `merged_riples` after they had been hidden.
-        if (!child.isMesh || child.isInstancedMesh || skip.has(child) || !child.visible) return;
-        if (!child.geometry || !child.material || Array.isArray(child.material)) return;
-        const key = child.material.uuid + '|' + Object.keys(child.geometry.attributes).sort().join(',');
-        if (!groups.has(key)) groups.set(key, { material: child.material, meshes: [] });
-        groups.get(key).meshes.push(child);
-        originals.push(child);
-    });
-
-    let merged = 0, removed = 0;
-    groups.forEach(({ material, meshes }) => {
-        if (meshes.length < 2) return;
-        const geoms = meshes.map((m) => {
-            const g = m.geometry.clone();
-            g.applyMatrix4(inv.clone().multiply(m.matrixWorld));
-            // mergeGeometries refuses to merge attributes whose `gpuType` differs,
-            // and this export carries a mix even though every array is a
-            // Float32Array. Normalising it is what actually lets the merge run.
-            for (const attr of Object.values(g.attributes)) {
-                if (attr.array instanceof Float32Array) attr.gpuType = THREE.FloatType;
-            }
-            return g;
-        });
-        const combined = mergeGeometries(geoms, false);
-        geoms.forEach((g) => g.dispose());
-        if (!combined) return;   // mismatched attributes: leave this group alone
-
-        const mesh = new THREE.Mesh(combined, material);
-        mesh.name = `merged_${material.name || 'material'}`;
-        mesh.castShadow = meshes.some((m) => m.castShadow);
-        mesh.receiveShadow = meshes.some((m) => m.receiveShadow);
-        root.add(mesh);
-        meshes.forEach((m) => { m.removeFromParent(); m.geometry.dispose(); removed++; });
-        merged++;
-    });
-
-    return { merged, removed, remaining: originals.length - removed };
-}
 
 // ---------------------------------------------------------------------------
 // 1. Gulmohar Setup (Center of garden)
@@ -564,30 +507,41 @@ function setupGazebo(gltf) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Pond with Waterfalls Setup (Top-Left)
+// 3. Pond (Top-Left)
 // ---------------------------------------------------------------------------
+// The basin is the lawn itself (groundHeightAt, from the baked terrain); this
+// builds only the water: one flat sheet at POND_WATER_Y, discarded wherever
+// the basin rises above it. The shoreline is therefore exactly where water
+// meets ground, from any angle, and it fades in over the first few
+// centimetres of depth instead of z-fighting along the waterline.
+//
+// The water's own body colour. Twilight used to be painted bronze-amber here
+// to fake a sunset reflection; the shader now reflects the real sky colours
+// main.js passes in (lightCtx.skyReflect / horizonReflect), so the body only
+// darkens a little as the light goes.
 const C_WATER_DAY = new THREE.Color(0x164c42);       // deep natural wetland pond emerald
-const C_WATER_DUSK = new THREE.Color(0x4a2416);      // sunset fiery bronze-amber reflection
-const C_WATER_DAWN = new THREE.Color(0x3e281c);      // dawn rosy amber reflection
+const C_WATER_DUSK = new THREE.Color(0x123a34);
+const C_WATER_DAWN = new THREE.Color(0x123a34);
 const C_WATER_NIGHT = new THREE.Color(0x09141e);     // starlit deep obsidian indigo pool
 
-const C_CASCADE_DAY = new THREE.Color(0x4aa697);     // clear cascading stream turquoise
-const C_CASCADE_DUSK = new THREE.Color(0x8a4430);    // warm sunset spray
-const C_CASCADE_DAWN = new THREE.Color(0x844a34);    // dawn spray
-const C_CASCADE_NIGHT = new THREE.Color(0x1a2a38);   // moonlight waterfall
-const _scratchWaterCol = new THREE.Color();
+// THREE.Color has no addScaledVector (that's Vector3), so the blend is spelt
+// out -- the old chained call would have thrown on the first frame it ran.
+function blendWeights(out, a, wa, b, wb, c, wc) {
+    out.r = a.r * wa + b.r * wb + c.r * wc;
+    out.g = a.g * wa + b.g * wb + c.g * wc;
+    out.b = a.b * wa + b.b * wb + c.b * wc;
+    return out;
+}
 
-function setupPond(gltf) {
+function setupPond() {
     const group = new THREE.Group();
-    group.name = 'PondWithWaterfalls';
+    group.name = 'Pond';
+    group.position.copy(GARDEN_POINTS.POND);
+    // Same rotation groundHeightAt() un-does, so this group's local x/z IS
+    // the baked terrain's frame and the water can sample it directly.
+    group.rotation.y = POND_ROT_Y;
 
-    let model;
-    let waterMeshList = [];
-    const skipMerge = new Set();   // meshes that keep their own material/shader
-    let surfaceWaterMat = null;
-    let cascadeMat = null;
-    let pondWaterUniforms = {
-        uPondC: { value: new THREE.Vector2(GARDEN_POINTS.POND.x, GARDEN_POINTS.POND.z) },
+    const pondWaterUniforms = {
         uTime: { value: 0.0 },
         uSkyColor: { value: new THREE.Color(0x9ec0e8) },
         uHorizColor: { value: new THREE.Color(0xd0e0f2) },
@@ -599,337 +553,26 @@ function setupPond(gltf) {
         uMoonIntensity: { value: 0.5 },
         uDayWeight: { value: 1.0 },
         uTwiWeight: { value: 0.0 },
-        uNightWeight: { value: 0.0 }
+        uNightWeight: { value: 0.0 },
+        uPondHeight: { value: getPondHeightTexture() },
+        uPondExtent: { value: POND_EXTENT },
+        uWaterY: { value: POND_WATER_Y }
     };
-    let pondCardMat = null;      // shared alpha-cutout variant (vegetation planes)
-    let pondSolidMat = null;     // shared opaque variant (scanned rock)
-    const rockGeomMap = new Map();
-    let waterTex = null;
 
-    if (gltf && gltf.scene) {
-        model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-
-        const targetWidth = 22.0;
-        const scaleFactor = targetWidth / Math.max(size.x, 0.001);
-
-        model.scale.setScalar(scaleFactor);
-        model.position.set(-center.x * scaleFactor, -0.42, -center.z * scaleFactor);
-
-        model.traverse((child) => {
-            if (!child.isMesh || !child.material) return;
-
-            const mat = child.material;
-            const matName = (mat.name || '').toLowerCase();
-            const childName = (child.name || '').toLowerCase();
-
-            if (childName.includes('plane.002') || childName.includes('plane_002')) {
-                // Outer terrain of the asset: feather radially so it seamlessly merges under the lawn
-                const terrainMat = new THREE.MeshStandardMaterial({
-                    map: mat.map || null,
-                    roughness: 0.95,
-                    metalness: 0.02,
-                    transparent: true,
-                    depthWrite: false,
-                    polygonOffset: true,
-                    polygonOffsetFactor: -1,
-                    polygonOffsetUnits: -1
-                });
-                terrainMat.onBeforeCompile = (shader) => {
-                    shader.vertexShader = 'varying vec3 vPondLocalPos;\n' + shader.vertexShader.replace(
-                        '#include <worldpos_vertex>',
-                        '#include <worldpos_vertex>\n vPondLocalPos = transformed;'
-                    );
-                    shader.fragmentShader = 'varying vec3 vPondLocalPos;\n' + shader.fragmentShader.replace(
-                        '#include <dithering_fragment>',
-                        `#include <dithering_fragment>
-                         // .xy silently pulled in this mesh's own vertical
-                         // extent (the pond terrain rises ~5m at the back) --
-                         // a horizontal-only radius has to drop the height
-                         // axis (.xz), or a tall rim fades out early purely
-                         // for being tall, which is what read as an elevated
-                         // area missing/floating out back. Band widened
-                         // ~4x too, for a much bigger green transition
-                         // around that same tall rim rather than a thin ring.
-                         float d = length(vPondLocalPos.xz);
-                         float fade = 1.0 - smoothstep(5.4, 7.5, d);
-                         gl_FragColor.a *= fade;
-                         if (gl_FragColor.a <= 0.02) discard;`
-                    );
-                };
-                child.material = terrainMat;
-                skipMerge.add(child);   // its shader feathers against local coords
-                child.receiveShadow = true;
-            } else if (matName.includes('water') || childName.includes('water')) {
-                // If it's the raw 4-vertex rectangular water plane (Plane.003_water_0), hide it permanently
-                if (child.geometry && child.geometry.attributes.position && child.geometry.attributes.position.count <= 4) {
-                    child.visible = false;
-                    return;
-                }
-                // Cascading waterfalls down the rock mound (Plane.120_water_0, Plane.121_water_0)
-                if (!cascadeMat) {
-                    cascadeMat = new THREE.MeshStandardMaterial({
-                        color: 0x4aa697,
-                        roughness: 0.22,
-                        metalness: 0.08,
-                        transparent: true,
-                        opacity: 0.85,
-                        depthWrite: false,
-                        side: THREE.DoubleSide
-                    });
-                    cascadeMat.onBeforeCompile = (shader) => {
-                        shader.uniforms.uTime = pondWaterUniforms.uTime;
-                        shader.uniforms.uDayWeight = pondWaterUniforms.uDayWeight;
-                        shader.uniforms.uTwiWeight = pondWaterUniforms.uTwiWeight;
-                        shader.uniforms.uNightWeight = pondWaterUniforms.uNightWeight;
-                        shader.uniforms.uSunColor = pondWaterUniforms.uSunColor;
-                        shader.vertexShader = 'varying vec3 vWaterW;\n' + shader.vertexShader.replace(
-                            '#include <worldpos_vertex>',
-                            '#include <worldpos_vertex>\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
-                        );
-                        shader.fragmentShader = `
-varying vec3 vWaterW;
-uniform float uTime;
-uniform float uDayWeight;
-uniform float uTwiWeight;
-uniform float uNightWeight;
-uniform vec3 uSunColor;
-` + shader.fragmentShader.replace(
-                            '#include <opaque_fragment>',
-                            `// Luminous waterfall floor reacting to day/twilight/night
-                             vec3 dayWater = vec3(0.05, 0.11, 0.10);
-                             vec3 twiWater = vec3(0.08, 0.04, 0.03);
-                             vec3 nightWater = vec3(0.010, 0.018, 0.026);
-                             vec3 cascadeFloor = dayWater * uDayWeight + twiWater * uTwiWeight + nightWater * uNightWeight;
-                             outgoingLight = max(outgoingLight, cascadeFloor);
-
-                             float foam = sin(vWaterW.y * 14.0 - uTime * 3.5) * 0.5 + 0.5;
-                             vec3 foamColor = mix(vec3(0.08, 0.12, 0.11), uSunColor * 0.14, uTwiWeight);
-                             foamColor = mix(foamColor, vec3(0.025, 0.045, 0.065), uNightWeight);
-                             outgoingLight += foamColor * foam * 0.5;
-                             #include <opaque_fragment>`
-                        );
-                    };
-                }
-                child.material = cascadeMat;
-                child.receiveShadow = true;
-                child.renderOrder = 3;
-                waterMeshList.push(child);
-            } else if (matName.includes('riple') || childName.includes('riple')) {
-                // Removed outright. These are baked light-glint cards from the
-                // original scan -- flat quads whose greyscale+alpha texture is
-                // meant to read as a specular sheen on water. In this scene
-                // they render as a hard pale rectangle floating on the pond:
-                // a "ghost reflection" with visible straight edges that no
-                // amount of blending or clipping hides, because the artefact
-                // IS the quad. The pond's own water material already carries
-                // its highlights, so nothing is lost by dropping them.
-                child.visible = false;
-            } else {
-                child.castShadow = !childName.includes('plane');
-                child.receiveShadow = true;
-                // ONE material covers two incompatible kinds of geometry here,
-                // which is why a single setting could never be right:
-                //   * Icosphere.* are solid scanned ROCKS. Their 2048 atlas is
-                //     RGBA with ~16.5% near-zero alpha, but that is chart
-                //     PADDING, not a cutout mask -- alpha-testing them
-                //     discarded every texel sampling near a chart boundary and
-                //     shattered the rocks into floating shards.
-                //   * Plane.* are flat VEGETATION cards whose alpha genuinely
-                //     is their silhouette -- drawn opaque they become solid
-                //     black rectangles.
-                // So split into exactly two shared variants, keyed on geometry
-                // rather than on the material's own (misleading) alphaMode.
-                // Two clones, not one per mesh: hundreds of unique materials
-                // would defeat mergeStaticByMaterial and the draw-call budget.
-                // Baked light-reflection cards: flat quads lying HORIZONTAL on
-                // the water, whose texture is a pale specular smear. They read
-                // as a ghost white rectangle floating on the pond. Vegetation
-                // cards are flat too, but they STAND UP, so world-space
-                // orientation separates them cleanly where names cannot --
-                // every flat quad in this asset is called Plane.something.
-                child.updateWorldMatrix(true, false);
-                child.geometry.computeBoundingBox();
-                const gb = child.geometry.boundingBox;
-                let wyMin = Infinity, wyMax = -Infinity, wxz = 0;
-                const corner = new THREE.Vector3();
-                for (const cx of [gb.min.x, gb.max.x]) {
-                    for (const cy of [gb.min.y, gb.max.y]) {
-                        for (const cz of [gb.min.z, gb.max.z]) {
-                            corner.set(cx, cy, cz).applyMatrix4(child.matrixWorld);
-                            wyMin = Math.min(wyMin, corner.y);
-                            wyMax = Math.max(wyMax, corner.y);
-                            wxz = Math.max(wxz, Math.abs(corner.x), Math.abs(corner.z));
-                        }
-                    }
-                }
-                const vertCount = child.geometry.attributes.position.count;
-                if (vertCount <= 8 && (wyMax - wyMin) < 0.05) {
-                    child.visible = false;   // horizontal glint card
-                    return;
-                }
-
-                const isCard = childName.startsWith('plane');
-                if (isCard) {
-                    if (!pondCardMat) {
-                        pondCardMat = mat.clone();
-                        pondCardMat.alphaTest = 0.35;
-                        pondCardMat.transparent = false;
-                        pondCardMat.depthWrite = true;
-                        pondCardMat.side = THREE.DoubleSide;
-                        pondCardMat.shadowSide = THREE.FrontSide;
-                    }
-                    child.material = pondCardMat;
-                    child.renderOrder = 4;
-                } else {
-                    if (!pondSolidMat) {
-                        pondSolidMat = mat.clone();
-                        pondSolidMat.alphaTest = 0;
-                        pondSolidMat.transparent = false;
-                        pondSolidMat.depthWrite = true;
-                        pondSolidMat.side = THREE.FrontSide;
-                    }
-                    child.material = pondSolidMat;
-                    if (childName.startsWith('icosphere')) {
-                        const baseName = childName.split('_')[0];
-                        if (!rockGeomMap.has(baseName)) {
-                            rockGeomMap.set(baseName, child.geometry);
-                        }
-                    }
-                }
-            }
-        });
-    } else {
-        model = createFallbackPond();
-    }
-
-    group.position.copy(GARDEN_POINTS.POND);
-    group.rotation.y = POND_ROT_Y;   // 2.35 rad (135 deg: pond faces southeast into the garden, high cliff sits against corner)
-    if (model) group.add(model);
-
-    // Sloping Stone Structure behind the high rock wall
-    // Conceals the cut-off backside and steps down naturally into the grassy hillside
-    const g04 = rockGeomMap.get('icosphere.004') || rockGeomMap.get('icosphere');
-    const g10 = rockGeomMap.get('icosphere.010') || g04;
-    const g12 = rockGeomMap.get('icosphere.012') || g04;
-    const g31 = rockGeomMap.get('icosphere.031') || g04;
-
-    if (g04 && pondSolidMat) {
-        const slopeDefs = [
-            // Tier 1: Capping the raw high cut-off cliff (Y: 1.6 to 2.1m)
-            { geo: g12, pos: [9.2, 2.05, 2.8], scale: [2.3, 2.0, 2.3], rot: [0.2, 0.5, -0.1] },
-            { geo: g04, pos: [8.8, 1.85, 0.6], scale: [2.4, 2.1, 2.4], rot: [-0.1, -0.4, 0.2] },
-            { geo: g10, pos: [9.0, 1.60, -1.6], scale: [2.1, 1.8, 2.1], rot: [0.3, -0.8, 0.1] },
-            // Tier 2: Mid slope stepping down (Y: 0.9 to 1.3m)
-            { geo: g31, pos: [11.2, 1.25, 3.2], scale: [2.5, 1.9, 2.5], rot: [-0.2, 0.9, 0.3] },
-            { geo: g12, pos: [10.9, 1.10, 0.8], scale: [2.6, 2.0, 2.6], rot: [0.1, 0.3, -0.2] },
-            { geo: g04, pos: [10.7, 0.85, -1.3], scale: [2.3, 1.7, 2.3], rot: [-0.3, -0.6, 0.2] },
-            // Tier 3: Base slope anchoring into turf (Y: 0.2 to 0.45m)
-            { geo: g10, pos: [13.0, 0.42, 2.6], scale: [2.6, 1.6, 2.6], rot: [0.2, 0.4, 0.1] },
-            { geo: g04, pos: [12.7, 0.28, 0.5], scale: [2.8, 1.5, 2.8], rot: [-0.1, 0.7, -0.2] },
-            { geo: g31, pos: [12.4, 0.18, -1.1], scale: [2.4, 1.4, 2.4], rot: [0.1, -0.5, 0.3] },
-        ];
-
-        slopeDefs.forEach((d, idx) => {
-            const rock = new THREE.Mesh(d.geo, pondSolidMat);
-            rock.name = `PondSlopeRock_${idx}`;
-            rock.position.set(d.pos[0], d.pos[1], d.pos[2]);
-            rock.scale.set(d.scale[0], d.scale[1], d.scale[2]);
-            rock.rotation.set(d.rot[0], d.rot[1], d.rot[2]);
-            rock.castShadow = true;
-            rock.receiveShadow = true;
-            group.add(rock);
-        });
-    }
-
-    // Organic shoreline-fitted water surface matching the single pond basin
-    function createPondWaterSurface() {
-        const rings = 20;
-        const segments = 64;
-        const geo = new THREE.BufferGeometry();
-        const positions = [];
-        const uvs = [];
-        const indices = [];
-
-        const centerX = 0.40;
-        const centerZ = 0.77;
-        const waterY = -0.42;
-
-        function basinRadius(theta) {
-            return 6.3 + 1.25 * Math.cos(theta - 2.8) + 0.45 * Math.sin(2.0 * theta);
-        }
-
-        // Center vertex
-        positions.push(centerX, waterY, centerZ);
-        uvs.push(0.5, 0.5);
-
-        for (let r = 1; r <= rings; r++) {
-            const frac = r / rings;
-            for (let s = 0; s < segments; s++) {
-                const theta = (s / segments) * Math.PI * 2;
-                const maxR = basinRadius(theta);
-                const rad = maxR * frac;
-                const x = centerX + Math.cos(theta) * rad;
-                const z = centerZ + Math.sin(theta) * rad;
-                positions.push(x, waterY, z);
-                uvs.push(0.5 + (x - centerX) / 16.0, 0.5 + (z - centerZ) / 16.0);
-            }
-        }
-
-        for (let s = 0; s < segments; s++) {
-            const nextS = (s + 1) % segments;
-            indices.push(0, 1 + s, 1 + nextS);
-        }
-
-        for (let r = 1; r < rings; r++) {
-            const curRow = 1 + (r - 1) * segments;
-            const nextRow = 1 + r * segments;
-            for (let s = 0; s < segments; s++) {
-                const nextS = (s + 1) % segments;
-                const i0 = curRow + s;
-                const i1 = curRow + nextS;
-                const o0 = nextRow + s;
-                const o1 = nextRow + nextS;
-                indices.push(i0, o0, i1);
-                indices.push(i1, o0, o1);
-            }
-        }
-
-        geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        geo.setIndex(indices);
-        geo.computeVertexNormals();
-        return geo;
-    }
-
-    surfaceWaterMat = new THREE.MeshStandardMaterial({
-        color: 0x164c42,       // Deep natural wetland pond emerald
-        roughness: 0.16,       // Smooth reflective pond surface
+    const surfaceWaterMat = new THREE.MeshStandardMaterial({
+        color: C_WATER_DAY,
+        roughness: 0.16,
         metalness: 0.08,
         envMapIntensity: 1.2,
         transparent: true,
-        opacity: 0.88,
-        depthWrite: false,     // Allows submerged rocks and lilies to be visible, zero depth fighting
-        depthTest: true,
-        side: THREE.DoubleSide
+        opacity: 0.9,
+        depthWrite: false,     // the bed shows through; nothing behind it needs depth from it
+        depthTest: true
     });
 
+    const n = getPondHeightTexture().image.width;
     surfaceWaterMat.onBeforeCompile = (shader) => {
-        shader.uniforms.uPondC = pondWaterUniforms.uPondC;
-        shader.uniforms.uTime = pondWaterUniforms.uTime;
-        shader.uniforms.uSkyColor = pondWaterUniforms.uSkyColor;
-        shader.uniforms.uHorizColor = pondWaterUniforms.uHorizColor;
-        shader.uniforms.uSunDir = pondWaterUniforms.uSunDir;
-        shader.uniforms.uSunColor = pondWaterUniforms.uSunColor;
-        shader.uniforms.uSunIntensity = pondWaterUniforms.uSunIntensity;
-        shader.uniforms.uMoonDir = pondWaterUniforms.uMoonDir;
-        shader.uniforms.uMoonColor = pondWaterUniforms.uMoonColor;
-        shader.uniforms.uMoonIntensity = pondWaterUniforms.uMoonIntensity;
-        shader.uniforms.uDayWeight = pondWaterUniforms.uDayWeight;
-        shader.uniforms.uTwiWeight = pondWaterUniforms.uTwiWeight;
-        shader.uniforms.uNightWeight = pondWaterUniforms.uNightWeight;
+        Object.assign(shader.uniforms, pondWaterUniforms);
         shader.vertexShader = 'varying vec3 vWaterW;\nvarying vec3 vWaterLocal;\n' + shader.vertexShader.replace(
             '#include <worldpos_vertex>',
             '#include <worldpos_vertex>\n vWaterLocal = position;\n vWaterW = (modelMatrix * vec4(transformed, 1.0)).xyz;'
@@ -937,7 +580,6 @@ uniform vec3 uSunColor;
         shader.fragmentShader = `
 varying vec3 vWaterW;
 varying vec3 vWaterLocal;
-uniform vec2 uPondC;
 uniform float uTime;
 uniform vec3 uSkyColor;
 uniform vec3 uHorizColor;
@@ -950,11 +592,22 @@ uniform float uMoonIntensity;
 uniform float uDayWeight;
 uniform float uTwiWeight;
 uniform float uNightWeight;
+uniform sampler2D uPondHeight;
+uniform float uPondExtent;
+uniform float uWaterY;
 ` + shader.fragmentShader.replace(
             '#include <opaque_fragment>',
-            `// Ambient water floor adapting to celestial diurnal cycle
+            `// Depth of water over the baked bed at this point. Texel centres
+             // sit on the grid samples, so u maps [-extent, extent] to
+             // [0.5/n, 1 - 0.5/n].
+             vec2 huv = (vWaterLocal.xz + uPondExtent) / (2.0 * uPondExtent)
+                      * ${((n - 1) / n).toFixed(6)} + ${(0.5 / n).toFixed(6)};
+             float waterDepth = uWaterY - texture2D(uPondHeight, huv).r;
+             if (waterDepth <= 0.0) discard;
+
+             // Ambient water floor adapting to celestial diurnal cycle
              vec3 dayFloor = vec3(0.045, 0.088, 0.082);
-             vec3 twiFloor = vec3(0.062, 0.035, 0.022);
+             vec3 twiFloor = vec3(0.030, 0.045, 0.050);
              vec3 nightFloor = vec3(0.008, 0.014, 0.022);
              vec3 waterFloor = dayFloor * uDayWeight + twiFloor * uTwiWeight + nightFloor * uNightWeight;
              outgoingLight = max(outgoingLight, waterFloor);
@@ -963,8 +616,11 @@ uniform float uNightWeight;
              float wave1 = sin(vWaterW.x * 2.6 + vWaterW.z * 2.1 + uTime * 0.85);
              float wave2 = cos(vWaterW.x * 1.8 - vWaterW.z * 2.4 + uTime * 0.65);
              float wave3 = sin(vWaterW.x * 4.5 + vWaterW.z * 3.8 - uTime * 1.25) * 0.5;
-             float ripple = (wave1 + wave2 + wave3) * 0.4;
-             vec3 shimmerCol = mix(uHorizColor, uSkyColor, 0.4) * 0.12;
+             // A fourth, off-axis wave: two crossing sines alone interfere
+             // into a regular lattice that reads as tiles from above.
+             float wave4 = sin(dot(vWaterW.xz, vec2(-3.1, 1.3)) + uTime * 0.55 + wave1 * 0.8) * 0.6;
+             float ripple = (wave1 + wave2 + wave3 + wave4) * 0.32;
+             vec3 shimmerCol = mix(uHorizColor, uSkyColor, 0.4) * 0.05;
              outgoingLight += shimmerCol * (ripple * 0.5 + 0.5);
 
              // Real sky reflection via Fresnel angle
@@ -985,117 +641,61 @@ uniform float uNightWeight;
 
              #include <opaque_fragment>
 
-             // Soft shoreline feathering so the water smoothly blends into the bank with zero hard edge
-             float dx = vWaterLocal.x - 0.40;
-             float dz = vWaterLocal.z - 0.77;
-             float localDist = length(vec2(dx, dz));
-             float localAngle = atan(dz, dx);
-             float maxR = 6.3 + 1.25 * cos(localAngle - 2.8) + 0.45 * sin(2.0 * localAngle);
-             float edgeFade = 1.0 - smoothstep(maxR * 0.90, maxR, localDist);
-             gl_FragColor.a *= edgeFade;
+             // Clear at the margin, where you see the bed through a few
+             // centimetres of water, thickening to the pond's body colour
+             // over the first ~60cm -- with a soft 10cm feather right at the
+             // shoreline so the edge never draws a hard line or z-fights.
+             float body = smoothstep(0.03, 0.65, waterDepth);
+             gl_FragColor.a *= smoothstep(0.0, 0.10, waterDepth) * mix(0.35, 1.0, body);
              if (gl_FragColor.a <= 0.005) discard;`
         );
     };
 
-    const pondWaterMesh = new THREE.Mesh(createPondWaterSurface(), surfaceWaterMat);
-    pondWaterMesh.name = 'PondWaterSurface';
-    pondWaterMesh.receiveShadow = true;
-    pondWaterMesh.renderOrder = 2;
-    group.add(pondWaterMesh);
-    waterMeshList.push(pondWaterMesh);
-    skipMerge.add(pondWaterMesh);
+    const size = POND_EXTENT * 2;
+    const waterGeo = new THREE.PlaneGeometry(size, size, 1, 1);
+    waterGeo.rotateX(-Math.PI / 2);
+    const water = new THREE.Mesh(waterGeo, surfaceWaterMat);
+    water.name = 'PondWaterSurface';
+    water.position.y = POND_WATER_Y;
+    water.receiveShadow = true;
+    water.renderOrder = 2;
+    group.add(water);
 
     // Hitbox for hover/click (local coordinates relative to group)
     const hitbox = new THREE.Mesh(
-        new THREE.CylinderGeometry(12.5, 12.5, 5.0, 24, 1, true),
+        new THREE.CylinderGeometry(9.5, 9.5, 3.0, 24, 1, true),
         new THREE.MeshBasicMaterial({ visible: false })
     );
-    hitbox.position.set(0, 2.5, 0);
+    hitbox.position.set(0, 1.0, 0);
     group.add(hitbox);
 
-    // `time` is real accumulated seconds. It used to be a per-frame counter, so
-    // the ripple ran at whatever the display refresh rate happened to be -- and
-    // slowly enough (one cycle per ~48s) to be invisible either way.
-    //
-    // Opacity alone never read as water. Scrolling the ripple map is what
-    // actually moves: two of them, at detuned rates and opposed directions, so
-    // the surface drifts rather than sliding as one sheet.
-    waterMeshList.forEach((m) => {
-        const map = m.material && m.material.map;
-        if (map) {
-            map.wrapS = map.wrapT = THREE.RepeatWrapping;   // offsetting a clamped map smears its edge pixels
-            map.needsUpdate = true;
-        }
-    });
-
-    // Safe now, and only now: every mesh this function needed to find by name
-    // has already been found and re-materialled.
-    if (gltf && gltf.scene) {
-        waterMeshList.forEach((m) => skipMerge.add(m));
-        const stats = mergeStaticByMaterial(group, skipMerge);
-        console.info(`[garden] single pond merged ${stats.removed} meshes into ${stats.merged} (kept ${stats.remaining} unmerged)`);
-    }
-
     const update = (time, delta, lightCtx) => {
-        if (pondWaterUniforms) {
-            pondWaterUniforms.uTime.value = time;
-            if (lightCtx) {
-                if (lightCtx.skyReflect) pondWaterUniforms.uSkyColor.value.copy(lightCtx.skyReflect);
-                if (lightCtx.horizonReflect) pondWaterUniforms.uHorizColor.value.copy(lightCtx.horizonReflect);
-                if (lightCtx.sunDir) pondWaterUniforms.uSunDir.value.copy(lightCtx.sunDir).normalize();
-                if (lightCtx.sunColor) pondWaterUniforms.uSunColor.value.copy(lightCtx.sunColor);
-                if (lightCtx.sunIntensity !== undefined) pondWaterUniforms.uSunIntensity.value = lightCtx.sunIntensity;
-                if (lightCtx.moonDir) pondWaterUniforms.uMoonDir.value.copy(lightCtx.moonDir).normalize();
-                if (lightCtx.moonColor) pondWaterUniforms.uMoonColor.value.copy(lightCtx.moonColor);
-                if (lightCtx.moonIntensity !== undefined) pondWaterUniforms.uMoonIntensity.value = lightCtx.moonIntensity;
-                if (lightCtx.dayWeight !== undefined) pondWaterUniforms.uDayWeight.value = lightCtx.dayWeight;
-                if (lightCtx.twiWeight !== undefined) pondWaterUniforms.uTwiWeight.value = lightCtx.twiWeight;
-                if (lightCtx.nightWeight !== undefined) pondWaterUniforms.uNightWeight.value = lightCtx.nightWeight;
-
-                const dayW = lightCtx.dayWeight ?? 1;
-                const twiW = lightCtx.twiWeight ?? 0;
-                const nightW = lightCtx.nightWeight ?? 0;
-                const twiWater = lightCtx.isMorning ? C_WATER_DAWN : C_WATER_DUSK;
-                const twiCascade = lightCtx.isMorning ? C_CASCADE_DAWN : C_CASCADE_DUSK;
-
-                if (surfaceWaterMat) {
-                    _scratchWaterCol.set(0, 0, 0)
-                        .addScaledVector(C_WATER_DAY, dayW)
-                        .addScaledVector(twiWater, twiW)
-                        .addScaledVector(C_WATER_NIGHT, nightW);
-                    surfaceWaterMat.color.copy(_scratchWaterCol);
-                    surfaceWaterMat.roughness = THREE.MathUtils.lerp(0.16, 0.11, nightW);
-                }
-                if (cascadeMat) {
-                    _scratchWaterCol.set(0, 0, 0)
-                        .addScaledVector(C_CASCADE_DAY, dayW)
-                        .addScaledVector(twiCascade, twiW)
-                        .addScaledVector(C_CASCADE_NIGHT, nightW);
-                    cascadeMat.color.copy(_scratchWaterCol);
-                }
-            }
-        }
-        for (let i = 0; i < waterMeshList.length; i++) {
-            const m = waterMeshList[i];
-            if (!m.material) continue;
-            if (m.material.opacity !== undefined) {
-                const s = 0.88 + Math.sin(time * 0.85 + i * 1.7) * 0.045;
-                m.material.opacity = THREE.MathUtils.clamp(s, 0.82, 0.95);
-            }
-            const map = m.material.map;
-            if (map) {
-                const dir = i % 2 ? -1 : 1;
-                map.offset.x = (time * 0.013 * dir) % 1;
-                map.offset.y = (time * 0.021) % 1;
-            }
-        }
+        pondWaterUniforms.uTime.value = time;
+        if (!lightCtx) return;
+        if (lightCtx.skyReflect) pondWaterUniforms.uSkyColor.value.copy(lightCtx.skyReflect);
+        if (lightCtx.horizonReflect) pondWaterUniforms.uHorizColor.value.copy(lightCtx.horizonReflect);
+        if (lightCtx.sunDir) pondWaterUniforms.uSunDir.value.copy(lightCtx.sunDir).normalize();
+        if (lightCtx.sunColor) pondWaterUniforms.uSunColor.value.copy(lightCtx.sunColor);
+        if (lightCtx.sunIntensity !== undefined) pondWaterUniforms.uSunIntensity.value = lightCtx.sunIntensity;
+        if (lightCtx.moonDir) pondWaterUniforms.uMoonDir.value.copy(lightCtx.moonDir).normalize();
+        if (lightCtx.moonColor) pondWaterUniforms.uMoonColor.value.copy(lightCtx.moonColor);
+        if (lightCtx.moonIntensity !== undefined) pondWaterUniforms.uMoonIntensity.value = lightCtx.moonIntensity;
+        const dayW = lightCtx.dayWeight ?? 1;
+        const twiW = lightCtx.twiWeight ?? 0;
+        const nightW = lightCtx.nightWeight ?? 0;
+        pondWaterUniforms.uDayWeight.value = dayW;
+        pondWaterUniforms.uTwiWeight.value = twiW;
+        pondWaterUniforms.uNightWeight.value = nightW;
+        blendWeights(surfaceWaterMat.color, C_WATER_DAY, dayW,
+            lightCtx.isMorning ? C_WATER_DAWN : C_WATER_DUSK, twiW, C_WATER_NIGHT, nightW);
+        surfaceWaterMat.roughness = THREE.MathUtils.lerp(0.16, 0.11, nightW);
     };
 
     const interactiveData = {
         id: 'pond',
-        title: 'Lotus Pond & Waterfall',
-        meta: 'Cascading Water Falls · Click to visit',
-        cameraTarget: { pos: new THREE.Vector3(-11.0, 6.8, -8.0), lookAt: new THREE.Vector3(-23.0, 1.8, -19.0) }
+        title: 'Garden Pond',
+        meta: 'Still water, soft banks · Click to visit',
+        cameraTarget: { pos: new THREE.Vector3(-11.0, 6.8, -8.0), lookAt: new THREE.Vector3(-23.0, 0.0, -19.0) }
     };
 
     return {
@@ -1115,8 +715,8 @@ uniform float uNightWeight;
 // ---------------------------------------------------------------------------
 // Deliberately spread around the ring rather than clustered: at a 50 degree
 // FOV the camera sees roughly a quarter of the ring at once, so frustum
-// culling keeps most of them off the GPU at any moment. Angles dodge the four
-// landmarks (pond ~220 deg, gazebo ~39 deg, maple ~318 deg) so nothing
+// culling keeps most of them off the GPU at any moment. Angles dodge the
+// landmarks (pond ~220 deg, gazebo ~39 deg) so nothing
 // overlaps or hides them, and every radius sits beyond the path's outer
 // wobble (~19.5) and inside the ground's edge fade (starts at 38).
 //
@@ -1124,8 +724,8 @@ uniform float uNightWeight;
 // pass: banyan 12.6MB/111k tris -> 6.8MB/52.6k, mango 15.7MB/130k tris and a
 // brutal 49.3MB of texture VRAM (two 2048 maps) -> 5.6MB/90.8k and 17.3MB.
 // One of each. Heights set the garden's pecking order deliberately: banyan is
-// the tallest thing here, mango overtops the maple (13.8), and the gulmohar
-// (11.2) stays the centrepiece by position rather than by size.
+// the tallest thing here, mango next, and the gulmohar (11.2) stays the
+// centrepiece by position rather than by size.
 const BACKGROUND_TREES = [
     {
         kind: 'banyan', deg: 152, r: 27.0, height: 26.25, rotY: 0.9, yOffset: 0.015,
@@ -1237,82 +837,6 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Maple Tree Setup (Top-Right, Firmly Rooted on Ground)
-// ---------------------------------------------------------------------------
-function setupMaple(gltf) {
-    // Mature Maple tree (~14m tall, firmly rooted into soil)
-    const targetHeight = 13.8;
-    const group = new THREE.Group();
-    group.name = 'MapleTree';
-
-    let model;
-    if (gltf && gltf.scene) {
-        model = gltf.scene;
-        const box = new THREE.Box3().setFromObject(model);
-        const center = box.getCenter(new THREE.Vector3());
-        const size = box.getSize(new THREE.Vector3());
-        const scaleFactor = targetHeight / Math.max(size.y, 0.001);
-
-        // Sunk enough to bury the root flare, not the whole contact seam -- a
-        // contact-shadow decal now covers the rest (createContactShadow, below),
-        // so this no longer has to do all the work on its own. -0.55 (down from
-        // -1.25) left the whole gnarled root tangle sitting exposed on top of
-        // the dirt rather than growing out of it; -0.9 is the middle ground.
-        model.scale.setScalar(scaleFactor);
-        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 1.35, -center.z * scaleFactor);
-
-        model.traverse((child) => {
-            if (!child.isMesh || !child.material) return;
-            child.castShadow = true;
-            child.receiveShadow = true;
-            // The maple's canopy material is literally named `Material_Mat` --
-            // no leafy word anywhere in this export -- so it is caught only by
-            // the alpha-blend branch of the gate, which is exactly why this
-            // has to run before enhanceFoliageMaterial converts BLEND away.
-            const wantsWind = isFoliageForWind(child, child.material);
-            enhanceFoliageMaterial(child.material, child, 0.35);
-            // Lower amplitude and speed than the gulmohar: this canopy is one
-            // large merged mesh rather than separate per-leaf-type meshes, so
-            // its own bounding box already spans nearly the whole tree --
-            // the same swayFraction here would read as the canopy shredding
-            // rather than swaying.
-            if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.040, speedMult: 0.7 });   // was 0.032/0.85 -- same over-sway complaint
-        });
-    } else {
-        model = createFallbackTree(0xd85b24, 13.8);
-    }
-
-    group.position.copy(GARDEN_POINTS.MAPLE);
-    group.rotation.y = 1.2;
-    group.add(model);
-    group.add(createContactShadow(7.5));
-
-    // Hitbox for hover/click (local coordinates relative to group)
-    const hitbox = new THREE.Mesh(
-        new THREE.CylinderGeometry(5.2, 5.2, 14.0, 10, 1, true),
-        new THREE.MeshBasicMaterial({ visible: false })
-    );
-    hitbox.position.set(0, 5.5, 0);
-    group.add(hitbox);
-
-    const interactiveData = {
-        id: 'maple',
-        title: 'Japanese Maple',
-        meta: 'Autumn Crimson Canopy · Click to visit',
-        cameraTarget: { pos: new THREE.Vector3(13.0, 6.8, -10.0), lookAt: new THREE.Vector3(23.0, 4.0, -21.0) }
-    };
-
-    return {
-        model: group,
-        interactive: {
-            object: hitbox,
-            targetGroup: group,
-            data: interactiveData
-        }
-    };
-}
-
-// ---------------------------------------------------------------------------
 // 5. Floor Detailing with `floor_leaves.glb` Everywhere (No Circles/Discs)
 // ---------------------------------------------------------------------------
 function setupFloorEverywhere(leavesGltf) {
@@ -1406,28 +930,23 @@ function setupFloorEverywhere(leavesGltf) {
                 let x, z;
                 // Distribute leaves with organic natural drifts under canopies + blanket across garden
                 const roll = Math.random();
-                if (roll < 0.50) {
+                if (roll < 0.66) {
                     // Wide garden ground coverage
                     const r = Math.sqrt(Math.random()) * 38.0;
                     const theta = Math.random() * Math.PI * 2;
                     x = Math.cos(theta) * r;
                     z = Math.sin(theta) * r;
-                } else if (roll < 0.78) {
+                } else {
                     // Centerpiece Gulmohar canopy drift
                     const r = Math.sqrt(Math.random()) * 14.5;
                     const theta = Math.random() * Math.PI * 2;
                     x = Math.cos(theta) * r;
                     z = Math.sin(theta) * r;
-                } else {
-                    // Japanese Maple canopy drift (autumn crimson leaf drop)
-                    const r = Math.sqrt(Math.random()) * 12.0;
-                    const theta = Math.random() * Math.PI * 2;
-                    x = GARDEN_POINTS.MAPLE.x + Math.cos(theta) * r;
-                    z = GARDEN_POINTS.MAPLE.z + Math.sin(theta) * r;
                 }
 
-                // Skip scattering fallen ground leaves inside the sunken pond basin
-                if (Math.hypot(x - (-23.0), z - (-19.0)) < 6.8) {
+                // No fallen leaves under the water (keyed on the basin's
+                // height, so it follows the real shoreline).
+                if (groundHeightAt(x, z) < POND_WATER_Y + 0.03) {
                     dummy.position.set(0, -999, 0);
                     dummy.scale.set(0, 0, 0);
                     dummy.updateMatrix();
@@ -1456,8 +975,8 @@ function setupFloorEverywhere(leavesGltf) {
     if (microPlants.length > 0) {
         // Was 16 with an `i < 24` / `i < 32` branch split -- at 16 total instances
         // the first branch is always true, so every plant landed in the pond ring
-        // and the maple/centerpiece branches were dead code. Rolling a fraction
-        // instead of comparing the loop index is what actually reaches all three.
+        // and the other branches were dead code. Rolling a fraction instead of
+        // comparing the loop index is what actually reaches both.
         const countPerPlant = QUALITY.microPlantCount;
         const dummy = new THREE.Object3D();
 
@@ -1472,18 +991,18 @@ function setupFloorEverywhere(leavesGltf) {
             for (let i = 0; i < countPerPlant; i++) {
                 let x, z;
                 const roll = Math.random();
-                if (roll < 0.40) {
-                    // Ring around sunken pond bank to merge rocks and garden lawn
-                    const r = 7.0 + Math.random() * 2.5;
-                    const theta = Math.random() * Math.PI * 2;
-                    x = GARDEN_POINTS.POND.x + Math.cos(theta) * r;
-                    z = GARDEN_POINTS.POND.z + Math.sin(theta) * r;
-                } else if (roll < 0.70) {
-                    // Near Japanese maple
-                    const r = 3.0 + Math.random() * 5.0;
-                    const theta = Math.random() * Math.PI * 2;
-                    x = GARDEN_POINTS.MAPLE.x + Math.cos(theta) * r;
-                    z = GARDEN_POINTS.MAPLE.z + Math.sin(theta) * r;
+                if (roll < 0.55) {
+                    // The pond's margin: a band just above the waterline, found
+                    // by height so it hugs the real shore rather than a circle.
+                    x = GARDEN_POINTS.POND.x; z = GARDEN_POINTS.POND.z;
+                    for (let t = 0; t < 40; t++) {
+                        const r = Math.random() * POND_EXTENT;
+                        const theta = Math.random() * Math.PI * 2;
+                        const px = GARDEN_POINTS.POND.x + Math.cos(theta) * r;
+                        const pz = GARDEN_POINTS.POND.z + Math.sin(theta) * r;
+                        const h = groundHeightAt(px, pz);
+                        if (h > POND_WATER_Y + 0.02 && h < POND_WATER_Y + 0.30) { x = px; z = pz; break; }
+                    }
                 } else {
                     // Centerpiece & gazebo transitions
                     const r = 4.0 + Math.random() * 8.0;
@@ -1523,7 +1042,7 @@ const BED_FOLIAGE_COLORS = [
 ];
 const BED_BLOSSOM_COLORS = [
     new THREE.Color(0xd9502f), new THREE.Color(0xb03d22),   // gulmohar red
-    new THREE.Color(0xc98a2e), new THREE.Color(0xe3b65c)    // maple gold
+    new THREE.Color(0xc98a2e), new THREE.Color(0xe3b65c)    // amber gold
 ];
 
 /**
@@ -1775,14 +1294,3 @@ function createFallbackGazebo() {
     return g;
 }
 
-function createFallbackPond() {
-    const g = new THREE.Group();
-    const water = new THREE.Mesh(
-        new THREE.CircleGeometry(7.0, 32),
-        new THREE.MeshStandardMaterial({ color: 0x225566, roughness: 0.1, metalness: 0.2 })
-    );
-    water.rotation.x = -Math.PI / 2;
-    water.position.y = 0.02;
-    g.add(water);
-    return g;
-}

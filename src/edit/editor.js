@@ -65,7 +65,7 @@ class Editor {
     buildMountCandidates() {
         const app = this.app;
         this.mountCandidates = [];
-        ['GulmoharTree', 'MapleTree', 'Gazebo'].forEach((name) => {
+        ['GulmoharTree', 'Gazebo'].forEach((name) => {
             const grp = app.garden.group.getObjectByName(name);
             if (!grp) return;
             grp.traverse((o) => {
@@ -174,7 +174,7 @@ class Editor {
             anchorObj = app.garden.group;
         } else {
             let p = hit.object;
-            while (p && !['GulmoharTree', 'MapleTree', 'Gazebo'].includes(p.name)) p = p.parent;
+            while (p && !['GulmoharTree', 'Gazebo'].includes(p.name)) p = p.parent;
             anchorName = p ? p.name : 'world';
             anchorObj = p || app.garden.group;
         }

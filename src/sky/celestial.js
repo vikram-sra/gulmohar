@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { getAssetUrl } from '../utils/paths.js';
+import { createAtmosphere, SKY_LOOKUP_GLSL } from './atmosphere.js';
 
 // Toronto, Ontario, Canada geographic coordinates
 export const TORONTO_LAT = 43.6532 * (Math.PI / 180); // 43.6532° N
@@ -83,13 +84,13 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
     skyRoot.name = "TorontoSkySystem";
 
     // --- 1. Atmospheric Sky Dome ---
+    // Colour comes from the physically based atmosphere (atmosphere.js); this
+    // shader only looks it up and adds the sun disc on top.
+    const atmosphere = createAtmosphere();
     const skyDomeGeo = new THREE.SphereGeometry(radius * 0.98, segW, segH);
     const skyDomeMat = new THREE.ShaderMaterial({
         uniforms: {
-            uZenithColor: { value: new THREE.Color(0x20244e) },
-            uMidColor: { value: new THREE.Color(0x7c4168) },
-            uHorizonColor: { value: new THREE.Color(0xeb5e28) },
-            uHorizonOpposite: { value: new THREE.Color(0x523d60) },
+            ...atmosphere.uniforms,
             uSunDir: { value: new THREE.Vector3(0, 1, 0) },
             uSunColor: { value: new THREE.Color(0xff8c42) },
             uNightFactor: { value: 0.0 }
@@ -102,32 +103,15 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
             }
         `,
         fragmentShader: `
-            uniform vec3 uZenithColor;
-            uniform vec3 uMidColor;
-            uniform vec3 uHorizonColor;
-            uniform vec3 uHorizonOpposite;
             uniform vec3 uSunDir;
             uniform vec3 uSunColor;
             uniform float uNightFactor;
             varying vec3 vWorldPos;
+            ${SKY_LOOKUP_GLSL}
 
             void main() {
                 vec3 dir = normalize(vWorldPos);
-                float h = max(0.0, dir.y);
-
-                // Multi-stage vertical atmospheric sky gradient
-                float lowerBand = pow(1.0 - h, 2.2);
-                float midWeight = smoothstep(0.03, 0.35, h) * (1.0 - smoothstep(0.30, 0.85, h));
-
-                // Horizon azimuthal split: sunset/sunrise warmth facing sun, cool twilight counter-glow opposite
-                vec2 dirAz = normalize(vec2(dir.x, dir.z) + vec2(1e-6));
-                vec2 sunAz = normalize(vec2(uSunDir.x, uSunDir.z) + vec2(1e-6));
-                float towardSun = smoothstep(-0.55, 0.95, dot(dirAz, sunAz));
-                vec3 horizonMix = mix(uHorizonOpposite, uHorizonColor, towardSun);
-
-                // Blend from horizon to transitional mid-sky tone to deep zenith
-                vec3 baseSky = mix(uZenithColor, horizonMix, lowerBand);
-                baseSky = mix(baseSky, uMidColor, midWeight * 0.75);
+                vec3 baseSky = atmosphereColor(dir);
 
                 float sunDot = max(0.0, dot(dir, uSunDir));
                 // Smoothly fade solar features as sun dips below the horizon (-0.06 to +0.06)
@@ -147,12 +131,9 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
                 float outerCorona = pow(sunDot, 280.0) * 0.22 * dayFactor;
                 vec3 coronaLight = uSunColor * (innerCorona * 0.70 + outerCorona * 0.25);
 
-                // 3. Crisp atmospheric Mie scatter (tight forward angle to preserve deep, clear blue sky)
-                float scatter = pow(sunDot, 36.0) * mix(0.10, 0.22, sunsetFactor) * dayFactor;
-                vec3 atmosGlow = uSunColor * (scatter * mix(0.15, 0.50, lowerBand));
-
-                // Combine: atmospheric glow gently warms surrounding sky without washing it into white
-                vec3 col = baseSky + atmosGlow * (1.0 - baseSky * 0.40) + coronaLight + discLight;
+                // The wide aerosol glow around the sun is part of the
+                // atmosphere now; only the disc and its tight corona are added.
+                vec3 col = baseSky + coronaLight + discLight;
 
                 gl_FragColor = vec4(col, 1.0);
             }
@@ -262,6 +243,7 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
         skyDomeMat,
         mwMat,
         celestialGroup,
+        atmosphere,
         /**
          * Updates celestial positions and sky dome colors for Toronto's latitude.
          */
