@@ -112,6 +112,13 @@ benchmark frame) and assigns one of three tiers:
 | `med` | Mid-range / tablet | Reduced grass, shadow map 1024 |
 | `low` | Mobile / integrated | Minimal grass, shadow map 512, no MSAA, no dust |
 
+**Shadows** re-render while the sun moves: every frame on `high`, ~33 Hz on
+`med`, ~22 Hz on `low` (`shadowIntervalMs`), and not at all while it is
+still. That cadence is affordable because the pass was cut first — the
+gulmohar's leaf stalks no longer cast (35% of the pass), so a refresh is ~350k
+triangles. `scripts/simplify-meshes.mjs` also took the fallen leaves from ~456k
+to ~114k triangles and the gulmohar's stalks from 189k to 65k.
+
 The **adaptive loop** (`sampleFrame` / `resetAdaptive`) watches live frame
 time and steps `pixelRatio` and instance counts down if the device struggles,
 or back up if it recovers headroom. `InstancedMesh.count` is a free draw-range

@@ -1448,18 +1448,15 @@ class GulmoharApp {
         this.moonLight.shadow.intensity = moonShadow * 0.45;
         this.moonLight.castShadow = moonShadow > 0.01 && this.sunLight.intensity < 0.20;
 
-        // Re-render the shadow maps on a fixed cadence, not purely on sun-angle
-        // delta. A pure angle gate looked right in isolation and was wrong in
-        // practice: at the ambient day speed (a ~4.5 min cycle) the 0.008 rad
-        // threshold only fires about 3 times a second, which reads as visibly
-        // jittery, stepped shadow motion rather than a smooth sweep -- worse
-        // once foliage wind was added, since the canopy now moves every frame
-        // while its shadow sat frozen for ~330ms at a time between updates.
-        // ~12 Hz is still an ~80% reduction in shadow-pass cost from rendering
-        // every frame, and frequent enough that PCFSoft's own blur hides the
-        // gap between updates. A light that has just started/stopped casting
-        // still forces an immediate refresh -- otherwise it would render with
-        // no map at all until the next scheduled tick.
+        // Re-render the shadow maps on a cadence while the sun moves: every
+        // frame on the top tier, every other frame (~33 Hz) on medium, ~22 Hz
+        // on low (QUALITY.shadowIntervalMs). It used to be 16 / 11 / 7 Hz,
+        // and at the ambient day speed that read as visibly stepped shadows --
+        // worst on phones. What made every-frame affordable was cutting the
+        // pass itself: the gulmohar's stalks no longer cast (35% of the pass),
+        // so a refresh is ~350k triangles, not ~540k. A light that has just
+        // started/stopped casting still forces an immediate refresh --
+        // otherwise it would render with no map at all until the next tick.
         const castingKey = (this.sunLight.castShadow ? 1 : 0) | (this.moonLight.castShadow ? 2 : 0);
         const shadowDue = (nowMs - (this._lastShadowMs ?? 0)) > QUALITY.shadowIntervalMs;
         // The time gate alone re-rendered ~691k triangles twelve times a second

@@ -16,6 +16,14 @@ export const GARDEN_POINTS = {
     GAZEBO: new THREE.Vector3(22.0, 0, 18.0)
 };
 
+// The banyan stands outside the path loop; its root core is excluded from
+// grass here, and setupBackgroundTrees places it from the same numbers.
+const BANYAN_DEG = 152, BANYAN_R = 32.0;
+const BANYAN_XZ = {
+    x: Math.cos(BANYAN_DEG * Math.PI / 180) * BANYAN_R,
+    z: Math.sin(BANYAN_DEG * Math.PI / 180) * BANYAN_R
+};
+
 // The path loop's own shape (createGardenPathway, below) -- pulled to module
 // scope so grass and flower beds can ask "is this point clear of the path"
 // without re-typing the curve's formula, the way the ground shader used to
@@ -53,8 +61,12 @@ function pathRadiusAt(theta) {
     // 2. Gazebo (deg 39.3° / 0.69 rad) - sweeps outwards flush to the gazebo entrance steps
     r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 0.69) / 0.46, 2));
 
-    // 3. Banyan Tree (deg 152° / 2.65 rad, trunk at 27.0m) - curves beside the trunk & root flare
-    r += 1.8 * Math.exp(-Math.pow(angDiff(theta, 2.65) / 0.42, 2));
+    // 3. Banyan Tree (deg 152° / 2.65 rad, trunk at 32m). Dips INWARD around
+    // it: the banyan's hanging-root pillars reach up to ~15m from its trunk,
+    // and the path used to bulge outward straight through them. Placement was
+    // solved against the measured root footprint -- this leaves ~1.8m of lawn
+    // between the path's edge and the nearest root.
+    r -= 5.0 * Math.exp(-Math.pow(angDiff(theta, 2.65) / 0.42, 2));
 
     // 4. Pond Shoreline (deg 219.6° / 3.84 rad) - skirts along the pond's near bank
     r -= 2.0 * Math.exp(-Math.pow(angDiff(theta, 3.84) / 0.35, 2));
@@ -162,7 +174,8 @@ export function isGroundClear(x, z, margin = 0) {
     // flat lawn itself -- only the basin.
     if (groundHeightAt(x, z) < Math.min(POND_WATER_Y + 0.06 + margin * 0.3, -0.03)) return false;
     if (Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin) return false;
-    if (Math.hypot(x - (-23.8), z - 12.7) < 10.2 + margin) return false; // Banyan trunk & sprawling root spread (1.5x)
+    if (Math.hypot(x, z) < 1.1 + margin) return false; // gulmohar trunk: no blades through the bark
+    if (Math.hypot(x - BANYAN_XZ.x, z - BANYAN_XZ.z) < 7.5 + margin) return false; // banyan trunk & dense root core
     if (Math.hypot(x - (-7.9), z - (-24.3)) < 2.0 + margin) return false; // Mango trunk
     const theta = Math.atan2(z, x);
     const pathR = pathRadiusAt(theta);
@@ -331,6 +344,53 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
     }
 }
 
+/**
+ * Canopy sky occlusion for a tree's wood: sky fill (hemisphere, ambient,
+ * environment) fades toward the ground, where the canopy hides most of the
+ * sky. Direct sun is untouched -- the shadow map owns that.
+ *
+ * Without it the fill lit a trunk's base and a banyan's root curtain as
+ * brightly as open lawn, so under a 26m canopy the roots read as standing
+ * outside its shade. Height and strength are uniforms, so every tree shares
+ * one compiled variant per underlying material program.
+ *
+ * @param {THREE.Material} material
+ * @param {number} height    world height (m) at which the sky is fully open
+ * @param {number} strength  0..1 fill removed at ground level
+ */
+function applyCanopyOcclusion(material, height, strength) {
+    if (material.userData.__canopyAO) return;
+    material.userData.__canopyAO = true;
+    const uniforms = { uCanopyAoHeight: { value: height }, uCanopyAoMin: { value: 1 - strength } };
+    const prev = material.onBeforeCompile;
+    const prevKey = material.customProgramCacheKey;
+    // Chained, and keyed explicitly: Three caches programs by the hook's
+    // source text, so a wrapper whose text is identical across materials
+    // with DIFFERENT inner hooks (wind, pastel grade) would share one program.
+    const baseKey = prevKey !== THREE.Material.prototype.customProgramCacheKey
+        ? prevKey.call(material) : (prev ? prev.toString() : '');
+    material.customProgramCacheKey = () => `${baseKey}|canopyAO`;
+    material.onBeforeCompile = function (shader, renderer) {
+        if (prev) prev.call(this, shader, renderer);
+        Object.assign(shader.uniforms, uniforms);
+        shader.vertexShader = 'varying float vCanopyY;\n' + shader.vertexShader.replace(
+            '#include <worldpos_vertex>',
+            '#include <worldpos_vertex>\nvCanopyY = (modelMatrix * vec4(transformed, 1.0)).y;'
+        );
+        shader.fragmentShader = 'varying float vCanopyY;\nuniform float uCanopyAoHeight;\nuniform float uCanopyAoMin;\n'
+            + shader.fragmentShader.replace(
+                '#include <lights_fragment_end>',
+                `#include <lights_fragment_end>
+                 {
+                     float canopyAo = mix(uCanopyAoMin, 1.0, smoothstep(0.0, uCanopyAoHeight, vCanopyY));
+                     reflectedLight.indirectDiffuse *= canopyAo;
+                     reflectedLight.indirectSpecular *= canopyAo;
+                 }`
+            );
+    };
+    material.needsUpdate = true;
+}
+
 // Shared across every landmark that gets a contact-shadow decal, so the
 // canvas is only ever drawn once.
 let _contactShadowTexture = null;
@@ -396,20 +456,32 @@ function setupGulmohar(gltf) {
         const size = box.getSize(new THREE.Vector3());
         const scaleFactor = targetHeight / Math.max(size.y, 0.001);
 
-        // Center trunk contact point on origin y = 0
+        // Sunk 0.3m: the trunk's bottom 25cm is a flat root-flare plate that
+        // spreads to ~1.9m and sat ON the lawn like a skirt, grass poking
+        // through its rim. Measured band by band, the trunk is a natural
+        // ~1.1m across at 0.25m up -- which is where the ground now cuts it.
         model.scale.setScalar(scaleFactor);
-        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 0.1, -center.z * scaleFactor);
+        model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor - 0.3, -center.z * scaleFactor);
 
         model.traverse((child) => {
             if (!child.isMesh || !child.material) return;
-            child.castShadow = true;
+            // The stalks -- the thin rachis stems under each compound leaf --
+            // were 189k triangles of the shadow pass (35% of it) for lines a
+            // few shadow texels wide; the leaf and flower cards around them
+            // already cast the canopy's shade. Cutting them is what lets the
+            // shadow map re-render every frame (see main.js). Applied after
+            // enhanceFoliageMaterial, which sets castShadow on everything.
+            const isStalk = /stalk/i.test(child.material.name || '');
             child.receiveShadow = true;
             // Captured before enhanceFoliageMaterial runs: it rewrites every
             // BLEND material to alphaTest, which would make `transparent`
             // false on all foliage and blind the wind gate's alpha-blend test.
             const wantsWind = isFoliageForWind(child, child.material);
             enhanceFoliageMaterial(child.material, child, 0.32);
+            child.castShadow = !isStalk;
             if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.048, speedMult: 0.85 });   // was 0.05/1.0 -- too much sway on the stalk mesh, 48% of the tree's geometry
+            // Last, so it chains over every other hook on the material.
+            if (/trunk/i.test(child.material.name || '')) applyCanopyOcclusion(child.material, 3.2, 0.5);
         });
     } else {
         model = createFallbackTree(0xcc3720, 11.2);
@@ -728,7 +800,9 @@ uniform float uWaterY;
 // centrepiece by position rather than by size.
 const BACKGROUND_TREES = [
     {
-        kind: 'banyan', deg: 152, r: 27.0, height: 26.25, rotY: 0.9, yOffset: 0.015,
+        // widen: xz stretch on top of the height scale, for a broader, more
+        // banyan-like spread; rotY turns its shallow-rooted side to the path.
+        kind: 'banyan', deg: BANYAN_DEG, r: BANYAN_R, height: 26.25, widen: 1.25, rotY: 0.17, yOffset: 0.015,
         id: 'banyan', title: 'Chinese Banyan', meta: 'Ficus microcarpa · Click to visit'
     },
     {
@@ -769,6 +843,15 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
                     injectFoliageWind(child, child.material, { swayFraction: 0.042, speedMult: 0.75, flutterMult: 0.8, isFruit: false });
                 }
             }
+            if (kind === 'banyan') {
+                const names = `${child.name} ${child.material.name}`;
+                // The hanging roots and branch cards are alpha "foliage" to
+                // enhanceFoliageMaterial, which drops shadow receiving on the
+                // low tier -- so on phones the root curtain ignored the
+                // canopy's shade entirely. A few thousand triangles; always on.
+                if (/vine|branch/i.test(names)) child.receiveShadow = true;
+                if (/bark|vine|branch|cap/i.test(names)) applyCanopyOcclusion(child.material, 9.0, 0.6);
+            }
         });
         const box = new THREE.Box3().setFromObject(proto);
         prepared[kind] = { proto, box };
@@ -782,11 +865,12 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         const scaleFactor = spec.height / Math.max(size.y, 0.001);
 
         const model = entry.proto.clone(true);
-        model.scale.setScalar(scaleFactor);
+        const w = spec.widen || 1;
+        model.scale.set(scaleFactor * w, scaleFactor, scaleFactor * w);
         // Banyan root spread sits gently atop the ground surface (+0.015) so its expansive
         // root network is fully exposed, while mango is sunk slightly (-0.08) to meet lawn.
         const yOff = spec.yOffset !== undefined ? spec.yOffset : -0.08;
-        model.position.set(-centre.x * scaleFactor, -entry.box.min.y * scaleFactor + yOff, -centre.z * scaleFactor);
+        model.position.set(-centre.x * scaleFactor * w, -entry.box.min.y * scaleFactor + yOff, -centre.z * scaleFactor * w);
 
         const holder = new THREE.Group();
         holder.name = `${spec.kind}_${i}`;
@@ -795,7 +879,7 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         holder.position.set(wx, 0, wz);
         holder.rotation.y = spec.rotY;
         holder.add(model);
-        holder.add(createContactShadow(spec.height * 0.62, spec.kind === 'banyan' ? 0.005 : 0.03));
+        holder.add(createContactShadow(spec.height * 0.62 * w, spec.kind === 'banyan' ? 0.005 : 0.03));
         group.add(holder);
 
         // Hoverable and clickable, same machinery as the four original
@@ -804,7 +888,7 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         // tree is a target, and counter-rotated out of the holder's own
         // rotation so the framing stays in world space.
         const hitbox = new THREE.Mesh(
-            new THREE.CylinderGeometry(spec.height * 0.42, spec.height * 0.42, spec.height, 10, 1, true),
+            new THREE.CylinderGeometry(spec.height * 0.42 * w, spec.height * 0.42 * w, spec.height, 10, 1, true),
             new THREE.MeshBasicMaterial({ visible: false })
         );
         hitbox.position.set(0, spec.height * 0.5, 0);
@@ -813,7 +897,7 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         // Stand off toward the garden centre so the camera looks outward at
         // the tree with the rest of the garden behind it, never through it.
         const inward = new THREE.Vector3(-wx, 0, -wz).normalize();
-        const dist = spec.height * 1.15;
+        const dist = spec.height * 1.15 * Math.sqrt(w);
         const camY = spec.kind === 'banyan' ? spec.height * 0.32 : spec.height * 0.52;
         const lookY = spec.kind === 'banyan' ? spec.height * 0.16 : spec.height * 0.42;
         interactives.push({

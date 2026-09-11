@@ -22,7 +22,7 @@ const TIERS = {
     low: {
         floorLeafCount: 10, microPlantCount: 16,
         grassCount: 18000, grassRadius: 36, backgroundTrees: 2, vegClumpCount: 20, denseGrassCount: 6,
-        shadowMapSize: 1024, shadowIntervalMs: 140, shadowType: THREE.PCFShadowMap,
+        shadowMapSize: 1024, shadowIntervalMs: 45, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.0, foliageReceiveShadow: false,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2,
         canopySide: THREE.DoubleSide,
@@ -31,7 +31,7 @@ const TIERS = {
     medium: {
         floorLeafCount: 24, microPlantCount: 34,
         grassCount: 32000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 40, denseGrassCount: 12,
-        shadowMapSize: 2048, shadowIntervalMs: 90, shadowType: THREE.PCFShadowMap,
+        shadowMapSize: 2048, shadowIntervalMs: 28, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.4, foliageReceiveShadow: true,
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
         canopySide: THREE.DoubleSide,
@@ -44,7 +44,7 @@ const TIERS = {
         // hardware depth comparison filtering with Vogel disk / IGN sampling
         // and honors shadow.radius (1.8), giving organic dappled leaf shadows
         // without pixel-stair artifacts or the fallback to basic 1-tap shadows.
-        shadowMapSize: 2048, shadowIntervalMs: 60, shadowType: THREE.PCFShadowMap,
+        shadowMapSize: 2048, shadowIntervalMs: 0, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.8, foliageReceiveShadow: true,
         pixelRatioCap: 1.5, antialias: true, anisotropy: 8,
         canopySide: THREE.DoubleSide,
@@ -191,7 +191,10 @@ export function resetAdaptive() {
  * the steady-state cost permanently.
  */
 export function sampleFrame(dtMs, wasShadowFrame) {
-    if (!QUALITY.adaptive || wasShadowFrame) return null;
+    // Shadow frames are excluded only when they are the exception. With an
+    // every-frame cadence (interval 0) every frame is one, and excluding them
+    // would leave the loop blind -- it would never adapt at all.
+    if (!QUALITY.adaptive || (wasShadowFrame && QUALITY.shadowIntervalMs > 0)) return null;
     if (warmup > 0) { warmup--; return null; }   // shader compile + texture upload
 
     samples.push(dtMs);
@@ -227,7 +230,8 @@ export function sampleFrame(dtMs, wasShadowFrame) {
 function down() {
     if (QUALITY.pixelRatioScale > 0.75) QUALITY.pixelRatioScale = 0.8;
     else QUALITY.instanceScale = 0.5;
-    QUALITY.shadowIntervalMs = Math.min(200, QUALITY.shadowIntervalMs * 1.4);
+    // Thin the shadow cadence too; from every-frame, step to every other.
+    QUALITY.shadowIntervalMs = Math.min(120, Math.max(24, QUALITY.shadowIntervalMs * 1.6));
     return descriptor('down');
 }
 
