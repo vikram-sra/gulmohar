@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// Replace ARTIST_UID with the artist's Firebase Auth UID, then paste into
+// Firebase console > Storage > Rules.
+//
+// Draft images are private. Publish sets customMetadata.public = 'true' on the
+// sizes it uses, which is what lets visitors fetch them. Originals can never
+// carry that flag, so they are never public.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isArtist() {
+      return request.auth != null && request.auth.uid == 'ARTIST_UID';
+    }
+
+    match /public/gallery.json {
+      allow get: if true;
+      allow create, update: if isArtist()
+        && request.resource.contentType == 'application/json'
+        && request.resource.size < 1 * 1024 * 1024;
+      allow delete: if isArtist();
+    }
+
+    match /public/history/{file} {
+      allow read, write: if isArtist();
+    }
+
+    match /artworks/{id}/{version}/{file} {
+      allow list: if isArtist();
+
+      allow get: if isArtist()
+        || (file.matches('(thumb|medium|display)[.](webp|jpg)')
+            && resource.metadata != null
+            && resource.metadata.public == 'true');
+
+      allow create, update: if isArtist() && (
+        (file.matches('(thumb|medium|display)[.](webp|jpg)')
+          && request.resource.contentType.matches('image/(webp|jpeg)')
+          && request.resource.size < 4 * 1024 * 1024)
+        || (file.matches('original[.][a-z0-9]+')
+          && request.resource.contentType.matches('image/.*')
+          && request.resource.size < 40 * 1024 * 1024
+          && (request.resource.metadata == null
+              || request.resource.metadata.public != 'true'))
+      );
+
+      allow delete: if isArtist();
+    }
+  }
+}

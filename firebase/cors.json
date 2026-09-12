@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["https://vikram-sra.github.io", "http://localhost:5183", "http://localhost:4173"],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type"],
+    "maxAgeSeconds": 3600
+  }
+]

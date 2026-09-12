@@ -216,6 +216,51 @@ who never use `?edit` never download it. In edit mode:
 
 `window.__gulmoharEdit` (dev-only) exposes the live editor instance.
 
+## Studio — cloud gallery and sync
+
+`?edit` above is a developer workflow (raycast a point, export a JSON/ZIP,
+commit it by hand). The **Studio**, at `/studio/`, is the artist-facing
+replacement: a flat page — every painting as a framed grid, an upload
+section — backed by Firebase, so uploading from a phone shows up on a
+laptop within seconds with no git involved. Draft edits are private and
+synced; a **Publish** step makes them live for visitors all at once.
+
+- `src/cloud/` — the backend interface (`backend.js` picks Firebase when
+  configured, a `localStorage`/IndexedDB stand-in on `localhost` otherwise),
+  the image pipeline (`images.js`: client-side resize to three sizes, WebP
+  with a JPEG fallback for iOS Safari), and publish logic (`publish.js`:
+  marks images public, writes `public/gallery.json` to Storage as one
+  atomic snapshot, records published hashes).
+- `src/studio/` — the page itself: sign-in gate, grid, upload form,
+  edit dialog, all vanilla JS/DOM like the rest of the project.
+- `firebase/` — Firestore/Storage security rules and the bucket CORS list.
+  **[`firebase/SETUP.md`](firebase/SETUP.md)** is the one-time console setup
+  (create the project, enable Storage — this now requires the Blaze plan,
+  see that file for why — get the config, lock the rules to the artist's
+  UID). Nothing in the public site depends on this being done;
+  `isCloudConfigured()` returns false with no config pasted in, and the
+  Studio just says "Not connected yet".
+- **[`NETLIFY.md`](NETLIFY.md)** covers deploying the static build there
+  (works alongside the existing GitHub Pages workflow) and the two
+  domain-list steps a new host needs on the Firebase side.
+
+Visitors never load the Firebase SDK. `loadPlacements()`
+(`src/scene/paintings.js`) fetches the published `gallery.json` with a plain
+`fetch` when the Studio is configured, mapping each artwork through
+`cloud/schema.js`'s `toPlacementRecord` (SDK-free, safe for this bundle) into
+the same record shape `?edit`'s `paintings.json` always produced; either no
+config, a network failure, or a timeout falls back to that bundled file, so
+a visitor never sees a blank garden over a bad Storage moment. `npm run
+build && node scripts/check-bundle.mjs` (wired into both the GitHub Pages
+workflow and `netlify.toml`) fails the build if the Firebase SDK ever ends
+up in `main.js` regardless — a size budget and a scan for the SDK's own
+markers, not a promise nobody will ever import it by accident.
+
+**Not yet built:** `/work/`'s own list still reads the hand-written static
+HTML rather than `gallery.json` (so it can still disagree with what's hung
+in the garden — the older discrepancy this project already had, not a new
+one), and `?edit` doesn't yet redirect to `/studio/`.
+
 ## The optimization pipeline
 
 **The Sketchfab source files are not fit to serve as downloaded.** Combined,

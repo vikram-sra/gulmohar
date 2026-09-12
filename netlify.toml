@@ -1,0 +1,29 @@
+[build]
+  # The bundle check runs here too, not just in the GitHub Pages workflow --
+  # both deploy paths build from the same source, so both should fail the
+  # same way if something accidentally pulls the Firebase SDK into the
+  # visitor bundle (see scripts/check-bundle.mjs).
+  command = "npm run build && node scripts/check-bundle.mjs"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# The Studio is already kept out of search indexes via its own <meta
+# name="robots"> tag (studio/index.html) -- this is the same instruction at
+# the HTTP layer too, which some crawlers respect even when they don't
+# render the page enough to see the meta tag.
+[[headers]]
+  for = "/studio/*"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+
+# No custom redirects needed: Netlify's static file server resolves
+# /work/, /about/, /studio/ to their own index.html the same way GitHub
+# Pages does, matching vite.config.js's MPA build (three real HTML entry
+# points, not one SPA shell) -- see NETLIFY.md.

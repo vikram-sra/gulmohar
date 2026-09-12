@@ -1,0 +1,29 @@
+rules_version = '2';
+
+// Replace ARTIST_UID with the artist's Firebase Auth UID (the Studio shows it
+// after first sign-in), then paste into Firebase console > Firestore > Rules.
+// Visitors never touch Firestore; only the artist can read or write.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isArtist() {
+      return request.auth != null && request.auth.uid == 'ARTIST_UID';
+    }
+
+    function validArtwork() {
+      let d = request.resource.data;
+      return d.schemaVersion == 1
+        && d.title is string && d.title.size() <= 200
+        && d.status in ['uploading', 'ready', 'trashed'];
+    }
+
+    match /artworks/{id} {
+      allow read: if isArtist();
+      allow create, update: if isArtist() && validArtwork();
+      allow delete: if isArtist();
+    }
+
+    match /meta/{doc} {
+      allow read, write: if isArtist();
+    }
+  }
+}

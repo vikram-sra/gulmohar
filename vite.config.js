@@ -17,7 +17,8 @@ export default defineConfig({
             input: {
                 main: page('index.html'),
                 work: page('work/index.html'),
-                about: page('about/index.html')
+                about: page('about/index.html'),
+                studio: page('studio/index.html')
             },
             output: {
                 entryFileNames: 'assets/[name].js',

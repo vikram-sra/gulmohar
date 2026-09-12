@@ -37,6 +37,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Check the visitor bundle stays Firebase-free
+        run: node scripts/check-bundle.mjs
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
 

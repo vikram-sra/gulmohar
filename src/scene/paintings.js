@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 import { getAssetUrl } from '../utils/paths.js';
+// Both SDK-free by design (see each file's own header comment) -- the
+// Firebase SDK itself must never reach the visitor bundle. Only
+// cloud/backend.js dynamic-imports firebaseBackend.js, and nothing here
+// calls it.
+import { galleryUrl } from '../cloud/config.js';
+import { toPlacementRecord } from '../cloud/schema.js';
+import { QUALITY } from '../quality.js';
 
 // ---------------------------------------------------------------------------
 // Paintings hung in the garden -- the read-only half. The editor
@@ -169,11 +176,37 @@ export function mountPainting(record, gardenGroup) {
 }
 
 /**
- * Fetches the placements file. A 404 (nothing placed yet) resolves to an
- * empty list rather than rejecting, so the garden with zero paintings is not
- * an error state -- it's the state before anyone has hung anything.
+ * Fetches the placements file: the published Firebase gallery when the
+ * Studio is configured (src/cloud/config.js), else the bundled
+ * paintings.json the old ?edit workflow wrote. Either a missing cloud
+ * config, a network failure, or a malformed response falls through to the
+ * bundled file -- a visitor should never see a blank garden because Storage
+ * had a bad moment, and a 404 (nothing placed yet, on either path) resolves
+ * to an empty list rather than rejecting, since zero paintings hung is the
+ * state before anyone has hung anything, not an error.
+ *
+ * A cloud fetch that hangs (a flaky response, not a clean failure) still
+ * has to give up and fall back -- AbortSignal.timeout, not a bare fetch.
  */
 export async function loadPlacements() {
+    const cloudUrl = galleryUrl();
+    if (cloudUrl) {
+        try {
+            const res = await fetch(cloudUrl, { cache: 'no-cache', signal: AbortSignal.timeout(6000) });
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data.artworks)) {
+                    const preferMedium = QUALITY.tier === 'low';
+                    const paintings = data.artworks
+                        .map((a) => toPlacementRecord(a, { preferMedium }))
+                        .filter(Boolean);
+                    return { version: data.schemaVersion || 1, paintings };
+                }
+            }
+        } catch {
+            // Falls through to the bundled file below.
+        }
+    }
     try {
         const res = await fetch(getAssetUrl('paintings.json'), { cache: 'no-cache' });
         if (!res.ok) return { version: 1, paintings: [] };
