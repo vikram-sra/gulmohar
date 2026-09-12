@@ -106,13 +106,15 @@ class GulmoharApp {
         this._contentReady = false;
         this._revealed = false;
 
-        // A dynamic import, so a visitor who never adds ?edit never
-        // downloads the editor chunk -- verify this with
-        // `grep -c TransformControls dist/assets/main.js` after a build,
-        // which must stay 0.
-        this.editMode = new URLSearchParams(location.search).has('edit');
-        if (this.editMode) {
-            document.title = 'Gulmohar — edit';
+        // Both are dynamic imports, so a visitor who never arrives with one of
+        // these parameters downloads neither chunk -- and placement mode pulls
+        // the whole Firebase SDK with it, which is exactly what must never
+        // reach the visitor bundle. Verified by scripts/check-bundle.mjs.
+        const params = new URLSearchParams(location.search);
+        this.editMode = params.has('edit');
+        this.placeArtworkId = params.get('place') || null;
+        if (this.editMode || this.placeArtworkId) {
+            document.title = this.placeArtworkId ? 'Gulmohar — place' : 'Gulmohar — edit';
             const meta = document.createElement('meta');
             meta.name = 'robots';
             meta.content = 'noindex';
@@ -756,6 +758,11 @@ class GulmoharApp {
                 if (this.editMode) {
                     import('./src/edit/editor.js').then(({ attachEditor }) => attachEditor(this));
                 }
+                if (this.placeArtworkId) {
+                    import('./src/place/placeMode.js')
+                        .then(({ attachPlaceMode }) => attachPlaceMode(this, this.placeArtworkId))
+                        .then((mode) => { this.placeMode = mode; });
+                }
             });
         });
     }
@@ -981,6 +988,17 @@ class GulmoharApp {
         // opening move behind a loading overlay.
         if (this._introStarted || !this._contentReady || !this._revealed) return;
         this._introStarted = true;
+
+        // Arriving to place a painting, you are already carrying it -- an
+        // orbiting bird's-eye of the garden is the wrong first move. Start on
+        // foot, near the gulmohar, facing out into the open lawn.
+        if (this.placeArtworkId) {
+            this.camera.position.set(10.5, 1.7, 9.0);
+            this.camera.lookAt(0, 1.7, 0);
+            this.controls.autoRotate = false;
+            this.setNavMode('walk');
+            return;
+        }
 
         // A snap to a distant bird's-eye followed by a slow-starting ease
         // read as a dead pause before anything moved. Starting from a small

@@ -72,34 +72,45 @@ body.studio { padding-bottom: 80px; }
 .framed .canvas.loading { background-image: linear-gradient(110deg, #e4dccb 30%, #efe8d8 50%, #e4dccb 70%); }
 
 /* ---- gallery grid ------------------------------------------------------- */
+/* A wall, not a list of forms: the paintings sit straight on the page ground
+   with a caption under each, and the controls stay out of the way until the
+   pointer or keyboard asks for them. */
 .grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: clamp(20px, 3.4vw, 36px); list-style: none;
+  gap: clamp(28px, 4vw, 52px) clamp(20px, 3.4vw, 36px); list-style: none;
 }
-.card {
-  display: flex; flex-direction: column; gap: 12px; padding: 14px;
-  background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; position: relative;
-}
+/* Positioned for the ⋯ menu, which is appended to the card itself. */
+.card { display: flex; flex-direction: column; gap: 10px; position: relative; }
 .card[draggable="true"] { cursor: grab; }
-.card.drag-over { outline: 2px dashed var(--gold); outline-offset: 3px; }
+.card.drag-over { outline: 2px dashed var(--gold); outline-offset: 8px; }
 .card.dragging { opacity: .45; }
-.card .art { display: flex; align-items: center; justify-content: center; min-height: 170px; padding: 30px 6px 4px; }
-.card .art .framed { max-width: 92%; }
-.card .t { font-family: Newsreader, Georgia, serif; font-size: 1.1rem; line-height: 1.25; }
-.card .m { color: var(--muted); font-size: .82rem; }
-.badges { display: flex; flex-wrap: wrap; gap: 6px; }
-.badge {
-  font-size: .66rem; letter-spacing: .1rem; text-transform: uppercase; padding: 3px 8px;
-  border-radius: 999px; border: 1px solid var(--rule); color: var(--muted); background: var(--ground);
+
+.card .art {
+  position: relative; display: flex; align-items: flex-end; justify-content: center;
+  min-height: 180px;
 }
-.badge.placed { color: #3f6b36; border-color: #a9c49c; }
-.badge.live { color: #3f6b36; border-color: #a9c49c; }
-.badge.changed, .badge.new { color: #9a6a12; border-color: #e3c88c; }
-.badge.sold { color: var(--gold); border-color: #d8b3a7; }
-.badge.uploading { color: #9a6a12; border-color: #e3c88c; }
-.card .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: auto; }
-.card .actions .btn { flex: 1; }
-.card .more { position: absolute; top: 8px; right: 8px; }
+.card .art .framed { max-width: 100%; }
+
+/* Hidden but still laid out and still focusable, so Tab reaches the buttons
+   and revealing them never shifts the grid. */
+.card .overlay {
+  position: absolute; inset: auto 0 0 0; display: flex; gap: 6px; justify-content: center;
+  padding: 10px 6px; opacity: 0; transition: opacity .14s ease;
+  background: linear-gradient(to top, rgba(246,241,227,.96) 40%, rgba(246,241,227,0));
+}
+.card:hover .overlay, .card:focus-within .overlay { opacity: 1; }
+.card .more { position: absolute; top: 0; right: 0; opacity: 0; transition: opacity .14s ease; }
+.card:hover .more, .card:focus-within .more, .card .more[aria-expanded="true"] { opacity: 1; }
+/* Nothing to hover on a touch screen, so the controls simply stay out. */
+@media (hover: none) {
+  .card .overlay, .card .more { opacity: 1; }
+}
+
+.card .cap { display: flex; flex-direction: column; gap: 2px; }
+.card .t { font-family: Newsreader, Georgia, serif; font-size: 1.05rem; line-height: 1.25; }
+.card .m { color: var(--muted); font-size: .8rem; }
+.card .s { color: var(--muted); font-size: .72rem; letter-spacing: .04rem; }
+.card .s.warn { color: #9a6a12; }
 .icon-btn {
   width: 34px; height: 34px; border-radius: 50%; border: 1px solid transparent; background: transparent;
   cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;

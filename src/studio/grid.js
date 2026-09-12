@@ -17,24 +17,34 @@ export function createGrid(container, actions) {
         if (openMenu && !openMenu.contains(e.target) && !e.target.closest('.more')) closeMenu();
     });
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenu(); });
-    function closeMenu() { if (openMenu) { openMenu.remove(); openMenu = null; } }
+    function closeMenu() {
+        if (!openMenu) return;
+        const owner = openMenu.parentNode && openMenu.parentNode.querySelector('.more');
+        if (owner) owner.setAttribute('aria-expanded', 'false');
+        openMenu.remove();
+        openMenu = null;
+    }
 
     function makeCard(id) {
         const framed = createFramed();
         const title = el('div', { class: 't' });
         const meta = el('div', { class: 'm' });
-        const badges = el('div', { class: 'badges' });
+        const status = el('div', { class: 's' });
         const placeBtn = el('button', { class: 'btn primary small', type: 'button' });
         const editBtn = el('button', { class: 'btn small', type: 'button', text: 'Edit' });
-        const moreBtn = el('button', { class: 'icon-btn more', type: 'button', 'aria-haspopup': 'menu', 'aria-label': 'More actions', text: '⋯' });
+        const moreBtn = el('button', { class: 'icon-btn more', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'More actions', text: '⋯' });
+        // The artwork carries the card: no panel, no border, no button row
+        // sitting under every painting. Actions live over the image and only
+        // surface on hover or keyboard focus, so a wall of twenty paintings
+        // reads as a wall of paintings.
         const node = el('li', { class: 'card', draggable: 'true' },
-            moreBtn,
-            el('div', { class: 'art' }, framed.el),
-            el('div', {}, title, meta),
-            badges,
-            el('div', { class: 'actions' }, placeBtn, editBtn));
+            el('div', { class: 'art' },
+                framed.el,
+                el('div', { class: 'overlay' }, placeBtn, editBtn),
+                moreBtn),
+            el('div', { class: 'cap' }, title, meta, status));
 
-        const card = { el: node, framed, title, meta, badges, placeBtn, editBtn, moreBtn, artwork: null, url: undefined };
+        const card = { el: node, framed, title, meta, status, placeBtn, editBtn, moreBtn, artwork: null, url: undefined };
 
         placeBtn.addEventListener('click', () => actions.onPlace(card.artwork));
         editBtn.addEventListener('click', () => actions.onEdit(card.artwork));
@@ -51,6 +61,7 @@ export function createGrid(container, actions) {
                 el('hr'),
                 item('Delete painting', () => actions.onDelete(a), 'danger'));
             node.append(openMenu);
+            moreBtn.setAttribute('aria-expanded', 'true');
             openMenu.querySelector('button').focus();
         });
 
@@ -104,13 +115,21 @@ export function createGrid(container, actions) {
             alt: `${a.title || 'Untitled'}, framed`
         });
 
-        const b = (cls, text) => el('span', { class: `badge ${cls}`, text });
-        card.badges.replaceChildren(...[
-            a.status === 'uploading' ? b('uploading', 'Upload incomplete') : null,
-            placed ? b('placed', 'In garden') : b('', 'Not placed'),
-            status ? b(status, { live: 'Live', changed: 'Changed', new: 'Not live yet' }[status]) : null,
-            AVAIL_LABEL[a.availability] ? b(a.availability === 'sold' ? 'sold' : '', AVAIL_LABEL[a.availability]) : null
-        ].filter(Boolean));
+        // One quiet line instead of a row of pills. "Live" and "Not placed"
+        // are the resting states and say nothing loudly; anything that wants
+        // the artist to act -- an incomplete upload, unpublished edits --
+        // colours the whole line rather than adding another chip to scan.
+        const parts = [
+            a.status === 'uploading' ? 'Upload incomplete' : null,
+            placed ? 'In garden' : 'Not placed',
+            status ? { live: 'Live', changed: 'Changed', new: 'Not live yet' }[status] : null,
+            AVAIL_LABEL[a.availability] || null
+        ].filter(Boolean);
+        card.status.textContent = parts.join(' · ');
+        // "Not live yet" is where every painting starts, so it is not a
+        // warning -- colouring it would make the whole wall amber before the
+        // first publish and leave nothing for the states that do need a look.
+        card.status.classList.toggle('warn', a.status === 'uploading' || status === 'changed');
 
         const thumb = a.images && a.images.thumb;
         const key = thumb ? thumb.path : null;

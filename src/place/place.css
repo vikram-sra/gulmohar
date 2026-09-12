@@ -1,0 +1,205 @@
+/* Placement-mode HUD. Loaded only with the placement chunk (?place=<id>), so
+   visitors never download it. Deliberately quieter than the visitor dock: the
+   garden is the thing being judged here, the controls are scaffolding. */
+
+.place-hud {
+    position: fixed;
+    inset: 0;
+    z-index: 1400;
+    pointer-events: none;            /* only the controls take input */
+    font: 13px/1.35 'Inter', system-ui, -apple-system, sans-serif;
+    color: #253226;
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.place-hud button,
+.place-hud .place-options { pointer-events: auto; }
+
+/* -- reticle ------------------------------------------------------------- */
+/* Touch has no cursor, so the aim point has to be drawn. It is the same on
+   desktop, so what you see is what places on both. */
+.place-reticle {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: -8px 0 0 -8px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(0, 0, 0, 0.18);
+}
+.place-reticle::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 2px; height: 2px;
+    margin: -1px 0 0 -1px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.95);
+}
+
+/* -- header -------------------------------------------------------------- */
+.place-head {
+    position: absolute;
+    top: 14px;
+    left: 50%;
+    transform: translateX(-50%);
+    max-width: min(92vw, 460px);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 7px 16px;
+    border-radius: 14px;
+    text-align: center;
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(20px) saturate(170%);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    border: 0.5px solid rgba(255, 255, 255, 0.55);
+    box-shadow: 0 6px 22px rgba(30, 40, 30, 0.14);
+}
+.place-title { font-weight: 600; letter-spacing: 0.01em; }
+.place-step { font-size: 11.5px; color: #5C6C58; }
+
+/* -- mount options ------------------------------------------------------- */
+.place-options {
+    position: absolute;
+    left: 50%;
+    bottom: 74px;
+    transform: translateX(-50%);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+    width: min(92vw, 460px);
+}
+.place-options[hidden] { display: none; }
+
+.place-option {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 9px 12px;
+    min-height: 52px;
+    text-align: left;
+    border-radius: 13px;
+    cursor: pointer;
+    font: inherit;
+    color: inherit;
+    background: rgba(255, 255, 255, 0.66);
+    backdrop-filter: blur(20px) saturate(170%);
+    -webkit-backdrop-filter: blur(20px) saturate(170%);
+    border: 0.5px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 6px 20px rgba(30, 40, 30, 0.13);
+    transition: background 0.16s ease, opacity 0.16s ease, border-color 0.16s ease;
+}
+.place-option strong { font-size: 13px; font-weight: 600; }
+.place-option small { font-size: 11px; color: #5C6C58; }
+.place-option:hover:not(:disabled) { background: rgba(255, 255, 255, 0.82); }
+.place-option.active {
+    border-color: rgba(217, 80, 47, 0.65);
+    background: rgba(255, 255, 255, 0.88);
+}
+/* Dimmed rather than hidden, with the reason in place of the hint: a control
+   that vanishes as you turn around reads as a bug, not as a rule. */
+/* Faded, not transparent. Dropping the glass opacity instead lets the dark
+   grass through and the label stops being readable at all -- which turns
+   "this mount isn't available here" into "this card is broken". */
+.place-option:disabled {
+    cursor: default;
+    box-shadow: none;
+    color: #8A947F;
+}
+.place-option:disabled small { color: #97A08C; }
+
+/* -- control bar --------------------------------------------------------- */
+.place-bar {
+    position: absolute;
+    left: 50%;
+    bottom: 18px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.62);
+    backdrop-filter: blur(24px) saturate(175%);
+    -webkit-backdrop-filter: blur(24px) saturate(175%);
+    border: 0.5px solid rgba(255, 255, 255, 0.55);
+    box-shadow: 0 8px 26px rgba(30, 40, 30, 0.16);
+}
+
+.place-btn {
+    font: inherit;
+    font-size: 12.5px;
+    font-weight: 550;
+    color: #253226;
+    padding: 0 13px;
+    height: 32px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    background: rgba(255, 255, 255, 0.5);
+    border: 0.5px solid rgba(255, 255, 255, 0.6);
+    /* none, not manipulation: manipulation still lets the browser treat a
+       touch starting on a button as the beginning of a scroll. */
+    touch-action: none;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+.place-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.75); }
+.place-btn:disabled { opacity: 0.45; cursor: default; }
+.place-btn[hidden] { display: none; }
+.place-btn.primary {
+    background: rgba(217, 80, 47, 0.92);
+    color: #fff;
+    border-color: rgba(217, 80, 47, 0.5);
+}
+.place-btn.primary:hover:not(:disabled) { background: rgba(217, 80, 47, 1); }
+.place-btn.ghost { background: transparent; border-color: transparent; color: #5C6C58; }
+.place-btn.round { width: 32px; padding: 0; font-size: 15px; }
+
+.place-size {
+    font-size: 11.5px;
+    color: #5C6C58;
+    min-width: 34px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.place-size[hidden] { display: none; }
+
+/* -- toast --------------------------------------------------------------- */
+.place-toast {
+    position: absolute;
+    left: 50%;
+    bottom: 64px;
+    transform: translate(-50%, 6px);
+    max-width: min(92vw, 440px);
+    padding: 8px 15px;
+    border-radius: 12px;
+    background: rgba(37, 50, 38, 0.9);
+    color: #F6F1E3;
+    font-size: 12.5px;
+    text-align: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.place-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.place-toast.error { background: rgba(150, 44, 26, 0.94); }
+/* The failure banner is appended to <body>, not inside .place-hud. */
+.place-toast.standalone { position: fixed; bottom: 24px; z-index: 1500; }
+
+/* No dark-scheme block on purpose: nothing else on this site has one, and a
+   HUD that flips to dark while the dock beside it stays light glass reads as
+   two different applications. */
+
+@media (max-width: 640px) {
+    /* Clear of the joystick (bottom-left) and the sprint/jump pads (right). */
+    .place-bar { bottom: 116px; flex-wrap: wrap; justify-content: center; max-width: 94vw; }
+    .place-options { bottom: 172px; }
+    .place-toast { bottom: 166px; }
+    .place-btn { height: 34px; }
+    .place-btn.round { width: 34px; }
+}

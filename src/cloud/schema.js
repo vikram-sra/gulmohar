@@ -42,10 +42,13 @@ export function toPublicArtwork(a, urlFor) {
         },
         placement: p.placed ? {
             anchor: p.anchor || 'world',
-            mount: p.mount || 'free',
+            mount: p.mount || 'surface',
             position: (p.position || [0, 1.5, 0]).map((v) => round(v, 4)),
             rotation: (p.rotation || [0, 0, 0]).map((v) => round(v, 5)),
-            scale: round(p.scale || 1, 4)
+            scale: round(p.scale || 1, 4),
+            // Rope length above the frame; meaningless for the other mounts,
+            // so it is only carried when it would actually be drawn.
+            ...(p.mount === 'rope' ? { rise: round(p.rise || 0.9, 3) } : {})
         } : null
     };
 }
@@ -67,7 +70,8 @@ export function toPlacementRecord(pub, { preferMedium = false } = {}) {
         mount: pub.placement.mount,
         position: pub.placement.position,
         rotation: pub.placement.rotation,
-        scale: pub.placement.scale
+        scale: pub.placement.scale,
+        rise: pub.placement.rise
     };
 }
 

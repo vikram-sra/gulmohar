@@ -7,6 +7,7 @@ import { getAssetUrl } from '../utils/paths.js';
 import { galleryUrl } from '../cloud/config.js';
 import { toPlacementRecord } from '../cloud/schema.js';
 import { QUALITY } from '../quality.js';
+import { groundHeightAt } from './garden.js';
 
 // ---------------------------------------------------------------------------
 // Paintings hung in the garden -- the read-only half. The editor
@@ -29,6 +30,126 @@ import { QUALITY } from '../quality.js';
 // ---------------------------------------------------------------------------
 
 export const METRES_PER_INCH = 0.0254;
+
+// How a painting meets the garden. Only `surface` is pure transform -- the
+// other three need real furniture rendered with them (legs, ropes), for
+// visitors as much as for the artist placing it, so the mount type lives in
+// the saved record and is rebuilt here rather than being baked into a
+// position at placement time.
+export const MOUNTS = ['easel', 'ground', 'rope', 'surface'];
+
+// The editor's older vocabulary, still in public/paintings.json.
+const LEGACY_MOUNTS = {
+    'ground-lean': 'ground', lean: 'ground',
+    'ground-flat': 'ground', flat: 'ground',
+    tree: 'surface', wall: 'surface', hang: 'surface',
+    free: 'surface'
+};
+
+export function normalizeMount(mount) {
+    if (MOUNTS.includes(mount)) return mount;
+    return LEGACY_MOUNTS[mount] || 'surface';
+}
+
+const EASEL_WOOD = 0x8a6c4a;
+const ROPE_COLOR = 0xbfa980;
+
+/**
+ * The easel: a back-leaning tripod with a ledge the canvas rests on. Built
+ * from one shared cylinder rather than per-painting geometry, because a
+ * garden with a dozen easels should cost a dozen draw calls, not a dozen
+ * meshes' worth of buffers.
+ */
+const _legGeo = new THREE.CylinderGeometry(0.022, 0.028, 1, 5);
+const _ropeGeo = new THREE.CylinderGeometry(0.008, 0.008, 1, 4);
+// Unit cube, scaled to the ledge. Shared like the struts, and for the same
+// reason -- placement mode rebuilds this furniture every time the artist
+// nudges the size, and a fresh BoxGeometry each time is pure garbage.
+const _ledgeGeo = new THREE.BoxGeometry(1, 1, 1);
+
+function woodMaterial() {
+    if (!woodMaterial._m) {
+        woodMaterial._m = new THREE.MeshStandardMaterial({ color: EASEL_WOOD, roughness: 0.78, metalness: 0.0 });
+    }
+    return woodMaterial._m;
+}
+function ropeMaterial() {
+    if (!ropeMaterial._m) {
+        ropeMaterial._m = new THREE.MeshStandardMaterial({ color: ROPE_COLOR, roughness: 0.92, metalness: 0.0 });
+    }
+    return ropeMaterial._m;
+}
+
+/** A leg/rope as a scaled unit cylinder from `a` to `b` (both local). */
+function strut(geo, material, a, b, radiusScale = 1) {
+    const mesh = new THREE.Mesh(geo, material);
+    const dir = new THREE.Vector3().subVectors(b, a);
+    const len = dir.length();
+    if (len < 1e-4) return null;
+    mesh.position.copy(a).addScaledVector(dir, 0.5);
+    mesh.scale.set(radiusScale, len, radiusScale);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+}
+
+/**
+ * Builds whatever holds the painting up, in the painting group's own local
+ * frame so it inherits position, rotation and scale for free -- an easel
+ * under a tilted canvas stays under it, and a rope stays plumb with the
+ * frame it carries.
+ *
+ * @param {string} mount      normalised mount type
+ * @param {number} w,h        painting size in metres, before group scale
+ * @param {number} rise       rope length above the frame (rope mount only)
+ * @param {number} groundDrop distance from the painting's centre down to the
+ *                            ground, in the group's own (tilted) frame
+ */
+export function createMountFurniture(mount, w, h, rise, groundDrop) {
+    const group = new THREE.Group();
+    group.name = 'PaintingMount';
+
+    if (mount === 'easel') {
+        const wood = woodMaterial();
+        const halfW = w * 0.42;
+        const ledgeY = -h / 2 - 0.02;
+        const footY = ledgeY - Math.max(groundDrop - h / 2, 0.45);
+        // Two front legs splayed out to the canvas's width, one back leg
+        // taking the lean -- the shape that reads as "easel" at a glance
+        // even at 30m, which a four-legged stand does not.
+        const feet = [
+            [new THREE.Vector3(-halfW * 0.9, ledgeY, 0.02), new THREE.Vector3(-halfW * 1.25, footY, 0.16)],
+            [new THREE.Vector3(halfW * 0.9, ledgeY, 0.02), new THREE.Vector3(halfW * 1.25, footY, 0.16)],
+            [new THREE.Vector3(0, ledgeY + h * 0.12, -0.02), new THREE.Vector3(0, footY, -0.42)]
+        ];
+        feet.forEach(([a, b]) => { const s = strut(_legGeo, wood, a, b); if (s) group.add(s); });
+        // The ledge the canvas actually sits on.
+        const ledge = new THREE.Mesh(_ledgeGeo, wood);
+        ledge.scale.set(w * 0.95, 0.035, 0.075);
+        ledge.position.set(0, ledgeY - 0.012, 0.035);
+        ledge.castShadow = true;
+        ledge.receiveShadow = true;
+        group.add(ledge);
+        return group;
+    }
+
+    if (mount === 'rope') {
+        const rope = ropeMaterial();
+        const top = h / 2 + 0.01;
+        const anchorY = top + Math.max(rise || 0.9, 0.15);
+        // Both ropes converge slightly toward a single knot overhead, which
+        // is what stops it reading as two unrelated vertical lines.
+        const knot = new THREE.Vector3(0, anchorY, 0);
+        [-w * 0.42, w * 0.42].forEach((x) => {
+            const s = strut(_ropeGeo, rope, new THREE.Vector3(x, top, 0), knot);
+            if (s) { s.castShadow = false; group.add(s); }
+        });
+        return group;
+    }
+
+    return null;
+}
 
 const FRAME_STYLES = {
     'pale-wood': { color: 0xc9b79a, roughness: 0.62, metalness: 0.05 },
@@ -145,6 +266,21 @@ export function mountPainting(record, gardenGroup) {
     group.scale.setScalar(record.scale || 1);
     group.userData.placement = record;
     anchor.add(group);
+
+    // Easels and ropes ride inside the painting's own group, so they inherit
+    // its transform instead of needing their own copy of it kept in sync.
+    // groundDrop is measured in that (possibly tilted) frame: how far the
+    // centre is above the ground directly below it.
+    const mount = normalizeMount(record.mount);
+    if (mount === 'easel' || mount === 'rope') {
+        const scale = record.scale || 1;
+        const groundY = groundHeightAt(group.position.x, group.position.z);
+        const furniture = createMountFurniture(
+            mount, width, height, (record.rise || 0) / scale,
+            Math.max((group.position.y - groundY) / scale, 0)
+        );
+        if (furniture) group.add(furniture);
+    }
 
     panel.material.map = placeholderTexture();
     panel.material.needsUpdate = true;
