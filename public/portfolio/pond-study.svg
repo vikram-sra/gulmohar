@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="880" viewBox="0 0 1200 880" role="img" aria-label="Placeholder artwork">
+  <defs>
+    <linearGradient id="water" x1="0" y1="0" x2="0.25" y2="1">
+      <stop offset="0" stop-color="#8FB5AE"/>
+      <stop offset="0.5" stop-color="#5E8A86"/>
+      <stop offset="1" stop-color="#33504F"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="880" fill="url(#water)"/>
+  <g fill="#F6F1E3" fill-opacity="0.1">
+    <ellipse cx="330" cy="300" rx="250" ry="26"/>
+    <ellipse cx="760" cy="420" rx="330" ry="30"/>
+    <ellipse cx="440" cy="620" rx="300" ry="24"/>
+    <ellipse cx="880" cy="740" rx="220" ry="20"/>
+  </g>
+  <g fill="#D9502F" fill-opacity="0.72">
+    <ellipse cx="300" cy="470" rx="54" ry="22" transform="rotate(-12 300 470)"/>
+    <ellipse cx="392" cy="516" rx="40" ry="17" transform="rotate(8 392 516)"/>
+    <ellipse cx="236" cy="546" rx="32" ry="14" transform="rotate(22 236 546)"/>
+  </g>
+  <g stroke="#253226" stroke-opacity="0.28" stroke-width="3" fill="none">
+    <path d="M900 120 C 960 260, 940 380, 1010 500"/>
+    <path d="M1010 500 C 1060 330, 1120 240, 1160 150"/>
+  </g>
+</svg>

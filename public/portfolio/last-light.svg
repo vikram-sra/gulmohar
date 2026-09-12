@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1260" viewBox="0 0 900 1260" role="img" aria-label="Placeholder artwork">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E7C9A0"/>
+      <stop offset="0.45" stop-color="#D9A07C"/>
+      <stop offset="1" stop-color="#7E6B6A"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.42" r="0.3">
+      <stop offset="0" stop-color="#FFE9C4" stop-opacity="0.95"/>
+      <stop offset="1" stop-color="#FFE9C4" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="900" height="1260" fill="url(#sky)"/>
+  <circle cx="450" cy="530" r="330" fill="url(#sun)"/>
+  <circle cx="450" cy="530" r="86" fill="#F6E4C0" fill-opacity="0.9"/>
+  <path d="M0 900 C 180 850, 320 880, 470 856 C 640 828, 760 852, 900 830 L900 1260 L0 1260 Z" fill="#4C4B45"/>
+  <path d="M0 1010 C 210 980, 380 1006, 560 984 C 720 964, 810 980, 900 968 L900 1260 L0 1260 Z" fill="#33362F"/>
+  <g stroke="#F6F1E3" stroke-opacity="0.16" stroke-width="2" fill="none">
+    <path d="M120 1160 C 250 1080, 420 1120, 560 1050"/>
+    <path d="M200 1215 C 360 1150, 520 1180, 700 1110"/>
+  </g>
+</svg>

@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "_comment": "Bundled demo arrangement, and the fallback the garden renders when no published gallery.json is reachable. Four placeholder works, one per mount type, so every way a painting can be hung is visible in the scene. Replaced wholesale by the Studio's Publish once Firebase is configured.",
   "paintings": [
     {
       "id": "untitled-i",
@@ -9,11 +10,58 @@
       "title": "Untitled I",
       "year": 2026,
       "medium": "Oil on canvas",
-      "mount": "ground-lean",
+      "frame": "pale-wood",
       "anchor": "world",
-      "position": [6.5, 0.35, 9.5],
-      "rotation": [-0.22, -0.6, 0],
-      "frame": "pale-wood"
+      "mount": "easel",
+      "position": [14.5, 1.0213, 11.5],
+      "rotation": [-0.16, -2.22364, 0],
+      "scale": 1
+    },
+    {
+      "id": "last-light",
+      "file": "portfolio/last-light.svg",
+      "widthIn": 20,
+      "heightIn": 28,
+      "title": "Last Light",
+      "year": 2026,
+      "medium": "Oil on linen",
+      "frame": "maple",
+      "anchor": "world",
+      "mount": "surface",
+      "position": [1.2949, 1.7, 1.1607],
+      "rotation": [0, 0.84, 0],
+      "scale": 1
+    },
+    {
+      "id": "pond-study",
+      "file": "portfolio/pond-study.svg",
+      "widthIn": 30,
+      "heightIn": 22,
+      "title": "Pond Study",
+      "year": 2025,
+      "medium": "Acrylic on board",
+      "frame": "none",
+      "anchor": "world",
+      "mount": "ground",
+      "position": [8, 0.3261, -6],
+      "rotation": [-0.34, -0.9273, 0],
+      "scale": 1.2
+    },
+    {
+      "id": "canopy",
+      "file": "portfolio/canopy.svg",
+      "widthIn": 18,
+      "heightIn": 24,
+      "title": "Canopy",
+      "year": 2026,
+      "medium": "Watercolour on paper",
+      "frame": "pale-wood",
+      "anchor": "world",
+      "mount": "rope",
+      "position": [4.6, 2.0452, 4.6],
+      "rotation": [0, 0.86994, 0],
+      "rise": 0.75,
+      "scale": 1
     }
   ]
 }
