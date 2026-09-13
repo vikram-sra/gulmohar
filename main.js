@@ -1286,15 +1286,22 @@ class GulmoharApp {
         wrapper.onmouseenter = () => this.resetUIHideTimer();
 
         const icons = {
-            home: `<svg viewBox="0 0 24 24"><path d="M12 3L3 12L12 21L21 12L12 3Z"/></svg>`,
+            // A rounded canopy over a short trunk -- this garden's landing
+            // page is a tree-centred scene, so "home" reads more directly as
+            // the gulmohar than the old diamond did.
+            home: `<svg viewBox="0 0 24 24"><path d="M12 3.4c-2.9 0-5.1 2.3-5.1 4.8 0 1 .3 1.9.9 2.6-1 .5-1.7 1.6-1.7 2.8 0 1.9 1.6 3.3 3.5 3.3H11v4.6h2v-4.6h1.4c1.9 0 3.5-1.4 3.5-3.3 0-1.2-.7-2.3-1.7-2.8.6-.7.9-1.6.9-2.6 0-2.5-2.2-4.8-5.1-4.8Z"/></svg>`,
             day: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v1.5M12 21.5V23M1 12h1.5M21.5 12H23"/></svg>`,
-            spiral: `<svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9c0 4.97 4.03 9 9 9s9-4.03 9-9a7.2 7.2 0 0 0-7.2-7.2 7.2 7.2 0 0 0-7.2 7.2c0 3.09 2.51 5.6 5.6 5.6s5.6-2.51 5.6-5.6a4 4 0 0 0-4-4c-1.33 0-2.4 1.07-2.4 2.4s1.07 2.4 2.4 2.4"/></svg>`,
             night: `<svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
             pause: `<svg viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>`,
             play: `<svg viewBox="0 0 24 24"><path d="M8 5.4L18.4 12 8 18.6Z"/></svg>`,
             work: `<svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>`,
             about: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.6v.6"/></svg>`,
-            walk: `<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="2.2"/><path d="M10 8.5l-2.4 6 2 .8 1.8-4.2 1.6 1.6v6.3h2v-7.2l-2.1-2.1.8-2.6a6.5 6.5 0 0 1 4.3 1.9V7.5A8 8 0 0 0 14 6.2z"/></svg>`,
+            // A walking figure with independent shoulder and hip joints, so
+            // the arms and legs read as swinging opposite each other rather
+            // than five lines radiating from one point -- which is what the
+            // first attempt at this looked like at 14px: a star, not a
+            // person walking.
+            walk: `<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="1.8"/><path d="M12 6.5 11 13"/><path d="M11 13 13.5 16 12.5 20"/><path d="M11 13 8.5 15.5 9.5 20"/><path d="M12 6.5 9 9 9.8 12.5"/><path d="M12 6.5 14.5 9.5 13.8 13"/></svg>`,
             instagram: `<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>`
         };
         this._motionIcons = { pause: icons.pause, play: icons.play };
@@ -1454,18 +1461,7 @@ class GulmoharApp {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
             if (this.daySpeed < 0.035) this.daySpeed = 0.035;
             this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
-        }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; });
-
-        const spiralBtn = createBtn(icons.spiral, null, 'Time warp · Hold to cycle');
-        addLongPress(spiralBtn, () => {
-            if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
-            if (this.daySpeed < 0.035) this.daySpeed = 0.035;
-            this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
-        }, () => {
-            this.sunAngle = (this.sunAngle + Math.PI / 12) % (Math.PI * 2);
-            this.daySpeed = 0;
-            this._pullBackForLightChange();
-        });
+        }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; this._pullBackForLightChange(); });
 
         const moonBtn = createBtn(icons.night, null, 'Midnight · Hold for a time-lapse');
         moonBtn.classList.add('night-btn');
@@ -1473,14 +1469,20 @@ class GulmoharApp {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
             if (this.daySpeed < 0.035) this.daySpeed = 0.035;
             this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
-        }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; });
+        }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; this._pullBackForLightChange(); });
 
         // The routes to the flat pages also exist in the always-visible corner
         // nav, since the dock auto-hides and these must never become unreachable.
         const workBtn = createBtn(icons.work, () => { window.location.href = './work/'; }, 'Work');
         const aboutBtn = createBtn(icons.about, () => { window.location.href = './about/'; }, 'About');
 
-        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, spiralBtn, moonBtn, workBtn, aboutBtn);
+        // No separate "time warp" control any more -- its hold ramped the
+        // same daySpeed the motion button's hold already does, and its tap
+        // (step 15deg per click) is redundant with a brief hold-and-release
+        // on Day/Night/Motion. One fewer button, and one motion model:
+        // Motion's tap pauses or resumes everything together, its hold fast-
+        // forwards it, and Day/Night still jump straight to a chosen hour.
+        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
 
         if (SITE.instagram) {
             wrapper.append(createBtn(icons.instagram, () => {
