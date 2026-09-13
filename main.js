@@ -1023,7 +1023,8 @@ class GulmoharApp {
                 // re-arm mouse-look; either way, just reveal the dock.
                 this.fpsNavigator.requestPointerLock();
             }
-            this.setUIVisibility(true);
+            if (targetData && targetData.cameraTarget) this.setUIVisibility(true);
+            else this.toggleUIVisibility();
             return;
         }
 
@@ -1060,9 +1061,9 @@ class GulmoharApp {
                 duration: 1.4,
                 ease: 'power2.inOut'
             });
-            this.setUIVisibility(true);
+            this.toggleUIVisibility();
         } else {
-            this.setUIVisibility(true);
+            this.toggleUIVisibility();
         }
     }
 
@@ -1387,6 +1388,22 @@ class GulmoharApp {
         this._uiHideTimer = setTimeout(() => this.setUIVisibility(false), delay);
     }
 
+    /**
+     * A tap on empty scene flips the dock rather than only ever summoning it:
+     * with the orb always on screen there is now a way back, so tapping to
+     * put the controls away is worth having. Taps that actually hit
+     * something (a painting, a landmark) still just reveal it -- you are
+     * engaging with the scene, not asking for the chrome to go.
+     */
+    toggleUIVisibility() {
+        if (this.uiVisible) {
+            clearTimeout(this._uiHideTimer);
+            this.setUIVisibility(false);
+        } else {
+            this.resetUIHideTimer();
+        }
+    }
+
     setUIVisibility(visible) {
         this.uiVisible = visible;
         if (this.uiContainer) this.uiContainer.classList.toggle('ui-hidden', !visible);
@@ -1412,7 +1429,11 @@ class GulmoharApp {
             // as easily as a tree, and the organic blob before that read as
             // a smudge. Two stacked triangles over a trunk is unambiguous at
             // any size, which is what an outline-only icon most needs.
-            home: `<svg viewBox="0 0 24 24"><path d="M12 3 9 9 15 9Z M12 6 6 15 18 15Z M12 15v5"/></svg>`,
+            // Drawn for the orb, which renders it at 26px rather than the
+            // dock's 14px -- at that size a real canopy silhouette with a
+            // forked trunk reads properly, where at 14px it collapsed into a
+            // smudge and had to be flattened into bare triangles.
+            home: `<svg viewBox="0 0 24 24"><path d="M8.4 12.6a3.5 3.5 0 0 1-1.2-6.5 3.8 3.8 0 0 1 3.4-3.4 3.9 3.9 0 0 1 3 1 3.9 3.9 0 0 1 3.1-1 3.8 3.8 0 0 1 3.3 3.4 3.5 3.5 0 0 1-1.2 6.5"/><path d="M8.4 12.6a3.3 3.3 0 0 0 3.2-1.2"/><path d="M18.8 12.6a3.3 3.3 0 0 1-3.2-1.2"/><path d="M12 21.4v-6.8"/><path d="M12 16.8 9.4 14.4"/><path d="M12 18.4l2.5-2.3"/></svg>`,
             day: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v1.5M12 21.5V23M1 12h1.5M21.5 12H23"/></svg>`,
             night: `<svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
             pause: `<svg viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>`,
@@ -1424,7 +1445,11 @@ class GulmoharApp {
             // than five lines radiating from one point -- which is what the
             // first attempt at this looked like at 14px: a star, not a
             // person walking.
-            walk: `<svg viewBox="0 0 24 24"><circle cx="12" cy="4" r="1.8"/><path d="M12 6.5 11 13"/><path d="M11 13 13.5 16 12.5 20"/><path d="M11 13 8.5 15.5 9.5 20"/><path d="M12 6.5 9 9 9.8 12.5"/><path d="M12 6.5 14.5 9.5 13.8 13"/></svg>`,
+            // The limbs are separate elements inside .walk-fig purely so CSS
+            // can swing them (see index.html) -- a pedestrian signal that is
+            // always mid-stride, rather than a figure standing still on a
+            // button labelled "walk".
+            walk: `<svg viewBox="0 0 24 24"><g class="walk-fig"><circle cx="12" cy="4" r="1.8"/><path d="M12 6.5 11 13"/><path class="leg-a" d="M11 13 13.5 16 12.5 20"/><path class="leg-b" d="M11 13 8.5 15.5 9.5 20"/><path class="arm-a" d="M12 6.5 9 9 9.8 12.5"/><path class="arm-b" d="M12 6.5 14.5 9.5 13.8 13"/></g></svg>`,
             instagram: `<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>`
         };
         this._motionIcons = { pause: icons.pause, play: icons.play };
@@ -1561,7 +1586,6 @@ class GulmoharApp {
             btn.addEventListener('pointercancel', cancel);
         };
 
-        const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home');
         const walkBtn = createBtn(icons.walk, () => this.toggleNavMode(), 'Walk / Explore · WASD or touch to navigate');
         this.walkBtn = walkBtn;
 
@@ -1605,7 +1629,7 @@ class GulmoharApp {
         // on Day/Night/Motion. One fewer button, and one motion model:
         // Motion's tap pauses or resumes everything together, its hold fast-
         // forwards it, and Day/Night still jump straight to a chosen hour.
-        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
+        wrapper.append(walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
 
         if (SITE.instagram) {
             wrapper.append(createBtn(icons.instagram, () => {
@@ -1615,6 +1639,31 @@ class GulmoharApp {
 
         container.appendChild(wrapper);
         document.body.appendChild(container);
+
+        // The orb: outside `container`, so setUIVisibility never touches it.
+        // It is the one control that is always on screen -- both "take me
+        // back to the start" and the handle that brings the rest of the dock
+        // back after it has collapsed into it.
+        const orb = document.createElement('button');
+        orb.type = 'button';
+        orb.id = 'home-orb';
+        orb.innerHTML = icons.home;
+        orb.setAttribute('aria-label', 'Home · also opens the controls');
+        orb.addEventListener('pointerdown', (e) => {
+            // Stops the tap also reaching the canvas, where it would be read
+            // as a scene click and toggle the dock straight back shut.
+            e.stopPropagation();
+            e.preventDefault();
+        });
+        orb.addEventListener('pointerup', (e) => e.stopPropagation());
+        orb.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.resetScene();
+            this.resetUIHideTimer();
+        });
+        document.body.appendChild(orb);
+        this.homeOrb = orb;
+
         this.resetUIHideTimer();
     }
 
@@ -1889,18 +1938,33 @@ class GulmoharApp {
             this._paintingsTurned = true;
         }
         if (this.dofPass) {
-            // this.pointer is NDC (-1..1) and starts at the (-2,-2) sentinel
-            // before any pointer event has arrived; touch only ever updates
-            // it on contact (see onPointerMove's own comment), so between
-            // touches it holds the last tap rather than tracking a hover
-            // that does not exist. Either way, off-screen reads as "no
-            // pointer" here and falls back to the screen centre.
-            const px = this.pointer.x, py = this.pointer.y;
-            if (px >= -1 && px <= 1 && py >= -1 && py <= 1) {
-                this.dofPass.pointerUV.set(px * 0.5 + 0.5, py * 0.5 + 0.5);
-            } else {
-                this.dofPass.pointerUV.set(0.5, 0.5);
+            // While a painting is being looked at, focus is pinned to the
+            // painting itself rather than to the cursor. Orbiting is done by
+            // dragging, and a drag is mostly spent with the cursor out over
+            // empty grass or sky -- which is exactly what "focus follows the
+            // pointer" would then focus on, throwing the very thing you are
+            // studying out of focus every time you turned around it.
+            let uv = null;
+            if (this._paintingFocus && this.paintings) {
+                const m = this.paintings.get(this._paintingFocus.id);
+                if (m) {
+                    const v = m.group.position.clone().project(this.camera);
+                    if (v.z < 1) uv = [v.x * 0.5 + 0.5, v.y * 0.5 + 0.5];
+                }
             }
+            // Otherwise the cursor. this.pointer is NDC (-1..1) and starts at
+            // the (-2,-2) sentinel before any pointer event has arrived; touch
+            // only ever updates it on contact (see onPointerMove's own
+            // comment), so between touches it holds the last tap rather than
+            // tracking a hover that does not exist. Either way, off-screen
+            // reads as "no pointer" here and falls back to the screen centre.
+            if (!uv) {
+                const px = this.pointer.x, py = this.pointer.y;
+                uv = (px >= -1 && px <= 1 && py >= -1 && py <= 1)
+                    ? [px * 0.5 + 0.5, py * 0.5 + 0.5]
+                    : [0.5, 0.5];
+            }
+            this.dofPass.pointerUV.set(uv[0], uv[1]);
         }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from

@@ -12,7 +12,7 @@ import { groundHeightAt } from './garden.js';
 // bundle already pays to load the trees themselves, so reusing their fitted
 // bounds for the rope mount's real branch height costs one more bounding-box
 // scan at mount time, not a second copy of the geometry.
-import { fitCanopies, canopyOver } from '../place/surfaces.js';
+import { fitCanopies, canopyOver, findBranchAbove } from '../place/surfaces.js';
 
 // ---------------------------------------------------------------------------
 // Paintings hung in the garden -- the read-only half. The editor
@@ -174,6 +174,11 @@ const ROPE_TARGET_RISE_M = 0.9;
 // Clearance kept below the canopy's highest recorded point, so the knot
 // sits under real leaf cover rather than exactly level with the topmost one.
 const ROPE_CANOPY_MARGIN_M = 0.9;
+// How far above that ceiling a real branch may still be accepted. The
+// ceiling is a guess made from a bounding box; a branch found by raycast is
+// the actual thing, so it is allowed to sit a little higher than the guess
+// rather than being clipped back down to it.
+const ROPE_BRANCH_OVERSHOOT_M = 2.5;
 const ROPE_RISE_MIN_M = 0.15;
 
 /**
@@ -181,11 +186,23 @@ const ROPE_RISE_MIN_M = 0.15;
  * there is none above this point at all (which reads as the frame having
  * been dragged out from under its tree, or `canopies` not being available).
  */
-function ropeReach(canopies, x, z, frameTopWorldY) {
+function ropeReach(gardenGroup, canopies, x, z, frameTopWorldY) {
     const c = canopyOver(canopies, x, z);
     if (!c) return null;
-    const available = (c.top - ROPE_CANOPY_MARGIN_M) - frameTopWorldY;
+    const ceiling = c.top - ROPE_CANOPY_MARGIN_M;
+    const available = ceiling - frameTopWorldY;
     if (available <= ROPE_RISE_MIN_M) return null;
+
+    // Tie it to a branch that is actually there, if one is: cast straight up
+    // through the tree's own branch geometry and stop at the first thing hit.
+    // A canopy is mostly gaps, so this finds nothing as often as not -- and
+    // when it doesn't, the rope falls back to a plausible length under the
+    // canopy rather than stretching toward a branch that isn't overhead.
+    const branchY = findBranchAbove(
+        gardenGroup, c.name, x, z,
+        frameTopWorldY + ROPE_RISE_MIN_M, ceiling + ROPE_BRANCH_OVERSHOOT_M
+    );
+    if (branchY !== null) return branchY - frameTopWorldY;
     return Math.min(ROPE_TARGET_RISE_M, available);
 }
 
@@ -421,7 +438,7 @@ export function mountPainting(record, gardenGroup, canopies = null) {
             // leave the rope ending in mid-air, or poking out through the
             // leaves. Ungrounded (no canopy overhead) falls back to whatever
             // was saved.
-            const reach = ropeReach(canopies, group.position.x, group.position.z,
+            const reach = ropeReach(gardenGroup, canopies, group.position.x, group.position.z,
                 group.position.y + (height * scale) / 2);
             if (reach !== null) riseM = reach;
         }

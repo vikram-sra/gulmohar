@@ -48,9 +48,13 @@
       --hud-shadow: 0 14px 40px rgba(37, 50, 38, 0.16), 0 2px 8px rgba(37, 50, 38, 0.10),
                     inset 0 1px 0 rgba(255, 255, 255, 0.66);
       --hud-halo: 0 1px 10px rgba(246, 241, 227, 0.9);
+      --hud-halo-tight: rgba(246, 241, 227, 0.95);
       --hud-btn-bg: rgba(255, 255, 255, 0.30);
       --hud-btn-border: rgba(37, 50, 38, 0.12);
       --hud-tip-bg: rgba(246, 241, 227, 0.82);
+      /* Warm by day, so the orb reads as lit rather than as a hole. */
+      --orb-glow: rgba(217, 80, 47, 0.30);
+      --orb-glow-soft: rgba(217, 80, 47, 0.14);
     }
 
     body[data-tod="night"] {
@@ -63,9 +67,14 @@
       --hud-border: rgba(255, 255, 255, 0.20);
       --hud-shadow: 0 14px 44px rgba(10, 14, 24, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.26);
       --hud-halo: 0 2px 12px rgba(12, 16, 26, 0.8);
+      --hud-halo-tight: rgba(10, 14, 22, 0.95);
       --hud-btn-bg: rgba(255, 255, 255, 0.06);
       --hud-btn-border: rgba(255, 255, 255, 0.13);
       --hud-tip-bg: rgba(16, 20, 28, 0.68);
+      /* Cooler and a touch stronger at night, where it is the only lit thing
+         on screen once the dock has collapsed into it. */
+      --orb-glow: rgba(242, 169, 140, 0.34);
+      --orb-glow-soft: rgba(242, 169, 140, 0.16);
     }
 
     .ui-overlay, .ui-overlay *, #clock, #hover-label *,
@@ -140,7 +149,7 @@
     /* --- hover label ------------------------------------------------------ */
     #hover-label {
       position: fixed;
-      bottom: calc(120px + env(safe-area-inset-bottom));
+      bottom: calc(184px + env(safe-area-inset-bottom));
       left: 50%;
       transform: translateX(-50%) translateY(8px);
       z-index: 900;
@@ -150,13 +159,21 @@
       transition: opacity 0.22s ease, transform 0.22s ease;
     }
     #hover-label.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+    /* Both lines carry the halo, and carry it twice. One soft shadow is
+       enough over sky or a flat wall, but this label sits over grass and
+       bark -- high-frequency, mid-tone, and the same luminance as the text
+       often enough that a single halo left the smaller line unreadable.
+       The tight inner copy holds the glyph edges, the wide outer one lifts
+       the whole line off whatever is behind it. */
     #hover-label .hl-title {
       display: block; color: var(--hud-ink-strong); font-size: 0.95rem; font-weight: 400;
-      letter-spacing: 0.14rem; text-shadow: var(--hud-halo);
+      letter-spacing: 0.14rem;
+      text-shadow: var(--hud-halo), var(--hud-halo), 0 0 3px var(--hud-halo-tight);
     }
     #hover-label .hl-meta {
-      display: block; color: var(--hud-ink); font-size: 0.7rem;
-      letter-spacing: 0.14rem; margin-top: 3px;
+      display: block; color: var(--hud-ink-strong); font-size: 0.72rem;
+      letter-spacing: 0.14rem; margin-top: 3px; opacity: 0.86;
+      text-shadow: var(--hud-halo), var(--hud-halo), 0 0 3px var(--hud-halo-tight);
     }
 
     /* --- dock -------------------------------------------------------------
@@ -164,7 +181,8 @@
        drag through the gaps between buttons still orbit the camera. */
     #dock {
       position: absolute;
-      bottom: calc(45px + env(safe-area-inset-bottom));
+      bottom: calc(112px + env(safe-area-inset-bottom));
+      transform-origin: bottom center;
       width: 100%;
       display: flex;
       justify-content: center;
@@ -180,7 +198,7 @@
       padding: 4px 9px;
       border-radius: 999px;
       border: 0.5px solid var(--hud-border);
-      box-shadow: var(--hud-shadow);
+      box-shadow: var(--hud-shadow), 0 0 24px var(--orb-glow-soft);
       display: flex;
       align-items: center;
       gap: 5px;
@@ -242,6 +260,66 @@
     .glass-btn .btn-tip.tip-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .ui-hidden { opacity: 0; transform: translateY(12px); pointer-events: none; }
+    /* The dock doesn't just fade -- it drops and shrinks toward the orb
+       sitting below it, so "where did the controls go" has a visible
+       answer and the orb reads as the thing they went into. */
+    #dock.ui-hidden { transform: translateY(46px) scale(0.62); }
+
+    /* --- home orb ---------------------------------------------------------
+       The one control that never hides: it is both "go back to the start"
+       and the handle that brings the rest of the dock back. */
+    #home-orb {
+      position: fixed;
+      bottom: calc(38px + env(safe-area-inset-bottom));
+      left: 50%;
+      margin-left: -27px;
+      width: 54px; height: 54px;
+      z-index: 1002;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 50%;
+      cursor: pointer;
+      color: var(--hud-ink-strong);
+      background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
+      backdrop-filter: blur(28px) saturate(180%) brightness(1.04);
+      -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.04);
+      border: 0.5px solid var(--hud-border);
+      box-shadow: var(--hud-shadow), 0 0 20px 2px var(--orb-glow);
+      transition: box-shadow 0.5s ease, transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+                  background 0.9s ease, border-color 0.9s ease, color 0.9s ease;
+      animation: orb-breathe 5s ease-in-out infinite;
+      /* none, not manipulation: see .glass-btn for why. */
+      touch-action: none;
+      -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #home-orb svg {
+      width: 26px; height: 26px; fill: none; stroke: currentColor;
+      stroke-width: 1.35; stroke-linecap: round; stroke-linejoin: round;
+    }
+    #home-orb:hover { transform: scale(1.06); }
+    #home-orb:active { transform: scale(0.95); }
+    @keyframes orb-breathe {
+      0%, 100% { box-shadow: var(--hud-shadow), 0 0 18px 1px var(--orb-glow-soft); }
+      50%      { box-shadow: var(--hud-shadow), 0 0 30px 5px var(--orb-glow); }
+    }
+
+    /* --- animated walk figure ---------------------------------------------
+       A pedestrian-crossing signal, always walking. transform-box: view-box
+       so transform-origin can be given in the icon's own 24x24 coordinates
+       rather than the rendered box's. */
+    .glass-btn .walk-fig > * { transform-box: view-box; }
+    .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .arm-b { transform-origin: 11px 13px; }
+    .glass-btn .walk-fig .leg-b { transform-origin: 11px 13px; }
+    .glass-btn .walk-fig .arm-a, .glass-btn .walk-fig .arm-b { transform-origin: 12px 6.5px; }
+    .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .arm-a { animation: walk-swing-a 1s ease-in-out infinite; }
+    .glass-btn .walk-fig .leg-b, .glass-btn .walk-fig .arm-b { animation: walk-swing-b 1s ease-in-out infinite; }
+    @keyframes walk-swing-a { 0%, 100% { transform: rotate(-17deg); } 50% { transform: rotate(17deg); } }
+    @keyframes walk-swing-b { 0%, 100% { transform: rotate(17deg); } 50% { transform: rotate(-17deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      #home-orb { animation: none; }
+      .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .leg-b,
+      .glass-btn .walk-fig .arm-a, .glass-btn .walk-fig .arm-b { animation: none; }
+    }
 
     /* --- loader ----------------------------------------------------------- */
     #loader {
@@ -261,10 +339,16 @@
 
     @media (max-width: 600px) {
       #dock {
-        bottom: calc(14px + env(safe-area-inset-bottom));
+        bottom: calc(82px + env(safe-area-inset-bottom));
         padding: 0 10px;
         width: 100vw;
       }
+      #home-orb {
+        bottom: calc(16px + env(safe-area-inset-bottom));
+        width: 50px; height: 50px; margin-left: -25px;
+      }
+      #home-orb svg { width: 24px; height: 24px; }
+      #hover-label { bottom: calc(150px + env(safe-area-inset-bottom)); }
       .glass-bar-wrapper {
         gap: 4px;
         padding: 4px 8px;

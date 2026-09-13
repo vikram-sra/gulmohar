@@ -10,12 +10,39 @@ import { el, toast } from './dom.js';
 // until an artist changes one.
 // ---------------------------------------------------------------------------
 
+// A drawn likeness per fixture rather than a photo: these are modelled
+// objects, so there is no photograph of them to use, and rendering the real
+// thing would mean standing up a WebGL context per card (see framed.js's
+// note on the same problem for paintings). Each is the same flat, line-and-
+// wash language as the rest of the Studio.
+const ART = {
+    tree: (canopy, trunk) => `<svg viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="26" r="17" fill="${canopy}"/>
+        <circle cx="20" cy="32" r="11" fill="${canopy}"/>
+        <circle cx="44" cy="32" r="11" fill="${canopy}"/>
+        <path d="M30 40h4v18h-4z" fill="${trunk}"/>
+        <path d="M32 48l-7-6M32 52l7-6" stroke="${trunk}" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+      </svg>`,
+    gazebo: () => `<svg viewBox="0 0 64 64" aria-hidden="true">
+        <path d="M32 8 54 26H10z" fill="#8a6c4a"/>
+        <path d="M14 26h4v28h-4zM46 26h4v28h-4zM30 26h4v28h-4z" fill="#6f573b"/>
+        <path d="M10 54h44v4H10z" fill="#a08a68"/>
+        <path d="M14 42h36v3H14z" fill="#6f573b"/>
+      </svg>`,
+    pond: () => `<svg viewBox="0 0 64 64" aria-hidden="true">
+        <ellipse cx="32" cy="36" rx="24" ry="15" fill="#5E8A86"/>
+        <ellipse cx="32" cy="33" rx="24" ry="15" fill="#79a8a2"/>
+        <path d="M14 32h12M34 38h14M22 42h10" stroke="#cfe3df" stroke-width="2.5"
+              stroke-linecap="round" fill="none" opacity="0.75"/>
+      </svg>`
+};
+
 export const DEFAULT_LANDMARKS = [
-    { id: 'gulmohar', title: 'Royal Poinciana (Gulmohar)', meta: 'Delonix Regia · Centerpiece of the Garden' },
-    { id: 'banyan', title: 'Chinese Banyan', meta: 'Ficus microcarpa · Click to visit' },
-    { id: 'mango', title: 'Mango Tree', meta: 'Mangifera indica · Click to visit' },
-    { id: 'gazebo', title: 'Garden Pavilion', meta: 'Tranquil Gazebo · Click to visit' },
-    { id: 'pond', title: 'Garden Pond', meta: 'Still water, soft banks · Click to visit' }
+    { id: 'gulmohar', title: 'Royal Poinciana (Gulmohar)', meta: 'Delonix Regia · Centerpiece of the Garden', art: ART.tree('#c4485f', '#7a5a3f') },
+    { id: 'banyan', title: 'Chinese Banyan', meta: 'Ficus microcarpa · Click to visit', art: ART.tree('#4a7a4e', '#6b5340') },
+    { id: 'mango', title: 'Mango Tree', meta: 'Mangifera indica · Click to visit', art: ART.tree('#5f8f45', '#75593d') },
+    { id: 'gazebo', title: 'Garden Pavilion', meta: 'Tranquil Gazebo · Click to visit', art: ART.gazebo() },
+    { id: 'pond', title: 'Garden Pond', meta: 'Still water, soft banks · Click to visit', art: ART.pond() }
 ];
 
 /**
@@ -61,7 +88,11 @@ export function createGardenSection(host, actions) {
             }
         });
 
+        const art = el('div', { class: 'artifact-art' });
+        art.innerHTML = def.art || '';
+
         const node = el('li', { class: 'artifact-row' },
+            art,
             el('div', { class: 'artifact-fields' },
                 el('label', {}, el('span', { class: 'artifact-label', text: 'Name' }), titleInput),
                 el('label', {}, el('span', { class: 'artifact-label', text: 'Description' }), metaInput)),

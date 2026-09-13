@@ -155,6 +155,12 @@ body.studio { padding-bottom: 80px; }
   display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
   padding: 14px 16px; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px;
 }
+.artifact-art {
+  width: 56px; height: 56px; flex: none; border-radius: 6px;
+  background: var(--ground); border: 1px solid var(--rule);
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.artifact-art svg { width: 44px; height: 44px; display: block; }
 .artifact-fields { display: flex; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
 .artifact-fields label { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
 .artifact-label { font-size: .7rem; letter-spacing: .1rem; text-transform: uppercase; color: var(--muted); }

@@ -1053,6 +1053,43 @@ function setupFloorEverywhere(leavesGltf) {
             instanced.instanceMatrix.needsUpdate = true;
             root.add(instanced);
         });
+
+        // A handful of leaves on the path itself. The scatter above lands
+        // some inside the path's footprint already, but it sits them on the
+        // terrain at +0.022 while the paving is a separate surface at +0.025
+        // -- so every one of those is buried a few millimetres under the
+        // stones and the path reads as swept clean. These ride the paving
+        // instead, following the same pathRadiusAt/pathWidthAt curve the
+        // path mesh is built from, so they cannot drift off its edge.
+        const pathLeafCount = Math.max(4, Math.round(QUALITY.floorLeafCount * 0.35));
+        leafMeshes.forEach(({ geometry, material }, meshIndex) => {
+            const instanced = new THREE.InstancedMesh(geometry, material, pathLeafCount);
+            instanced.receiveShadow = true;
+            instanced.castShadow = false;
+            instanced.userData.baseCount = instanced.count;
+            for (let i = 0; i < pathLeafCount; i++) {
+                // Offset per leaf type so the types interleave along the loop
+                // rather than each starting its run at the same place.
+                const theta = ((i + meshIndex * 0.37) / pathLeafCount + Math.random() * 0.06) * Math.PI * 2;
+                // Biased toward the edges, where leaves actually gather --
+                // the middle of a walked path stays clearer than its sides.
+                const across = (Math.random() < 0.5 ? -1 : 1) * (0.25 + Math.random() * 0.24) * pathWidthAt(theta);
+                const r = pathRadiusAt(theta) + across;
+                const x = Math.cos(theta) * r, z = Math.sin(theta) * r;
+                dummy.position.set(x, groundHeightAt(x, z) + 0.032 + (i % 5) * 0.002, z);
+                dummy.rotation.set(
+                    (Math.random() - 0.5) * 0.1,
+                    Math.random() * Math.PI * 2,
+                    (Math.random() - 0.5) * 0.1
+                );
+                const s = 0.6 + Math.random() * 0.35;
+                dummy.scale.set(s, s, s);
+                dummy.updateMatrix();
+                instanced.setMatrixAt(i, dummy.matrix);
+            }
+            instanced.instanceMatrix.needsUpdate = true;
+            root.add(instanced);
+        });
     }
 
     // 2. Scatter micro plants & lush riparian foliage to blend pond edges and garden spaces

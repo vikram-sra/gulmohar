@@ -13,8 +13,16 @@
       "frame": "pale-wood",
       "anchor": "world",
       "mount": "easel",
-      "position": [14.5, 1.0213, 11.5],
-      "rotation": [-0.16, -2.22364, 0],
+      "position": [
+        14.5,
+        1.0213,
+        11.5
+      ],
+      "rotation": [
+        -0.16,
+        -2.22364,
+        0
+      ],
       "scale": 1
     },
     {
@@ -28,8 +36,16 @@
       "frame": "maple",
       "anchor": "world",
       "mount": "surface",
-      "position": [1.2949, 1.7, 1.1607],
-      "rotation": [0, 0.84, 0],
+      "position": [
+        1.2949,
+        1.7,
+        1.1607
+      ],
+      "rotation": [
+        0,
+        0.84,
+        0
+      ],
       "scale": 1
     },
     {
@@ -43,8 +59,16 @@
       "frame": "none",
       "anchor": "world",
       "mount": "ground",
-      "position": [8, 0.3261, -6],
-      "rotation": [-0.34, -0.9273, 0],
+      "position": [
+        8,
+        0.3261,
+        -6
+      ],
+      "rotation": [
+        -0.34,
+        -0.9273,
+        0
+      ],
       "scale": 1.2
     },
     {
@@ -58,9 +82,17 @@
       "frame": "pale-wood",
       "anchor": "world",
       "mount": "rope",
-      "position": [4.6, 2.0452, 4.6],
-      "rotation": [0, 0.86994, 0],
-      "rise": 0.75,
+      "position": [
+        3.24,
+        2.1,
+        6.65
+      ],
+      "rotation": [
+        0,
+        1.127,
+        0
+      ],
+      "rise": 1.5,
       "scale": 1,
       "startHere": true
     },
@@ -74,10 +106,17 @@
       "medium": "Mixed media",
       "frame": "chrome",
       "anchor": "world",
-      "mount": "rope",
-      "position": [24.06, 1.85, 21.77],
-      "rotation": [0, 0.5, 0],
-      "rise": 1.0,
+      "mount": "surface",
+      "position": [
+        23.99,
+        1.85,
+        21.64
+      ],
+      "rotation": [
+        0,
+        0.5,
+        0
+      ],
       "scale": 1
     }
   ],

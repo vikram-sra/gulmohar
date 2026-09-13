@@ -305,7 +305,15 @@ export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
         uLawnMask: { value: mask },
         uLawnMaskXform: { value: new THREE.Vector3(-MASK_SIZE_M / 2, -MASK_SIZE_M / 2, 1 / MASK_SIZE_M) },
         uLawnCam: { value: new THREE.Vector3() },
-        uLawnFade: { value: new THREE.Vector4(4, 26, 0.11, MAX_DENSITY * density) },
+        // near, far, far-density, global density. The far end was tuned when
+        // blades were 0.20m and density 0.09; they are now 0.12m and 0.16, so
+        // the same 26m falloff was holding ~1.9M triangles of lawn on screen
+        // (measured) against the ~500k this was originally budgeted for --
+        // most of it blades under a pixel wide. Pulling the falloff in and
+        // dropping the far floor keeps the dense turf where it is actually
+        // looked at and stops paying for the part of the field that reads as
+        // flat colour either way.
+        uLawnFade: { value: new THREE.Vector4(3.5, 15, 0.045, MAX_DENSITY * density) },
         // -1000 radius: smoothstep(-1000, -1000+fade, d) reads 1 for every
         // real distance, i.e. no clearing, without a branch in the shader.
         uClearZone: { value: new THREE.Vector4(0, 0, -1000, 0.7) }

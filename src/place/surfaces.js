@@ -143,3 +143,42 @@ export function canopyOver(canopies, x, z) {
     }
     return null;
 }
+
+const _branchRay = new THREE.Raycaster();
+const _up = new THREE.Vector3(0, 1, 0);
+const _from = new THREE.Vector3();
+
+/**
+ * The height of the first actual branch directly above (x, z), or null when
+ * the vertical line through that point passes through open air all the way
+ * up -- which happens plenty, since a canopy is mostly gaps.
+ *
+ * Leaves are excluded from the cast, for two separate reasons: leaf cards
+ * are alpha-tested, so a ray "hitting" one usually hits a transparent
+ * corner of a quad rather than anything you can see; and they are displaced
+ * by the wind shader at render time while the CPU-side geometry a raycast
+ * reads stays at its rest pose, so a leaf hit is not where the leaf looks.
+ * Branch and trunk meshes are neither, which makes them the only honest
+ * thing here to tie a rope to.
+ *
+ * One cast per rope-hung painting at mount time, never per frame.
+ */
+export function findBranchAbove(gardenGroup, treeName, x, z, fromY, maxY) {
+    const holder = gardenGroup.getObjectByName(treeName);
+    if (!holder || maxY <= fromY) return null;
+
+    const meshes = [];
+    holder.traverse((child) => {
+        if (!child.isMesh || !child.visible) return;
+        if (/leaf|leaves|foliage|flower|fruit|canopy/i.test(`${child.name} ${child.material && child.material.name}`)) return;
+        meshes.push(child);
+    });
+    if (!meshes.length) return null;
+
+    _from.set(x, fromY, z);
+    _branchRay.set(_from, _up);
+    _branchRay.near = 0;
+    _branchRay.far = maxY - fromY;
+    const hits = _branchRay.intersectObjects(meshes, false);
+    return hits.length ? hits[0].point.y : null;
+}
