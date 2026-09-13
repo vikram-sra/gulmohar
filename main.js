@@ -781,6 +781,22 @@ class GulmoharApp {
                     this._registerHover(object, hoverData);
                 });
 
+                // Landmark name/description overrides from the Studio's
+                // "Garden artifacts" section (src/studio/gardenSection.js).
+                // garden.interactives' `data` objects are the exact objects
+                // already registered as hover/click labels, so mutating them
+                // in place is all this needs -- no separate copy to keep in
+                // sync with what a click on the gulmohar actually shows.
+                if (Array.isArray(data.landmarks) && data.landmarks.length) {
+                    const overrides = new Map(data.landmarks.map((l) => [l.id, l]));
+                    garden.interactives.forEach(({ data: hoverData }) => {
+                        const o = hoverData && overrides.get(hoverData.id);
+                        if (!o) return;
+                        if (o.title) hoverData.title = o.title;
+                        if (o.meta) hoverData.meta = o.meta;
+                    });
+                }
+
                 // Every placed painting blocks walking through it too, not
                 // just the trees -- a small circle at its own footprint,
                 // added to the same list the trunks are already in.

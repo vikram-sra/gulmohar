@@ -146,6 +146,25 @@ body.studio { padding-bottom: 80px; }
 .drop .framed { max-width: 78%; }
 .drop .hint { font-size: .86rem; }
 
+/* ---- garden artifacts ----------------------------------------------------
+   The garden's own fixtures -- name and description only, no image/placement
+   the way a painting card has, so a plain editable list rather than the
+   framed gallery grid above it. */
+.artifact-list { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.artifact-row {
+  display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap;
+  padding: 14px 16px; background: var(--raised); border: 1px solid var(--rule); border-radius: 6px;
+}
+.artifact-fields { display: flex; gap: 14px; flex: 1; min-width: 240px; flex-wrap: wrap; }
+.artifact-fields label { display: flex; flex-direction: column; gap: 5px; flex: 1; min-width: 160px; }
+.artifact-label { font-size: .7rem; letter-spacing: .1rem; text-transform: uppercase; color: var(--muted); }
+.artifact-fields input {
+  font: inherit; font-size: .92rem; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 5px;
+  background: #fbf8f0; color: var(--ink);
+}
+.artifact-actions { display: flex; align-items: center; gap: 10px; }
+.artifact-status { font-size: .78rem; color: #3f6b36; min-width: 40px; }
+
 .form { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 18px; align-content: start; }
 .form .full { grid-column: 1 / -1; }
 .field { display: flex; flex-direction: column; gap: 6px; }

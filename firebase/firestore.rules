@@ -25,5 +25,12 @@ service cloud.firestore {
     match /meta/{doc} {
       allow read, write: if isArtist();
     }
+
+    // The garden's own fixtures (the gulmohar, the banyan, the gazebo...) --
+    // editable name/description, not a placed artwork. Created on first
+    // edit, so no schema/status check like validArtwork() above.
+    match /landmarks/{id} {
+      allow read, write: if isArtist();
+    }
   }
 }

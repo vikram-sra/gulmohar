@@ -81,6 +81,18 @@ export function createFirebaseBackend() {
 
         deleteArtworkDoc: (id) => deleteDoc(doc(db, 'artworks', id)),
 
+        watchLandmarks(cb, onError) {
+            return onSnapshot(collection(db, 'landmarks'), (snap) => {
+                cb(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+            }, onError);
+        },
+        // setDoc + merge, not updateDoc: a landmark's doc does not exist
+        // until its first edit -- there is no seeding step, unlike artworks
+        // which are always created through uploadNewArtwork first.
+        updateLandmark(id, patch) {
+            return setDoc(doc(db, 'landmarks', id), { ...patch, updatedAt: serverTimestamp() }, { merge: true });
+        },
+
         putImage(path, blob, { contentType, cacheControl, onProgress } = {}) {
             return new Promise((resolve, reject) => {
                 const task = uploadBytesResumable(ref(storage, path), blob, { contentType, cacheControl });

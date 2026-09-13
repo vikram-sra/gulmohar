@@ -5,12 +5,20 @@ export function publicArtworks(backend, artworks) {
     return artworks.filter((a) => a.status === 'ready').map((a) => toPublicArtwork(a, backend.publicUrl));
 }
 
+// The garden's fixtures are just a name and a description -- nothing here
+// needs an image path or a status filter the way a painting does.
+export function publicLandmarks(landmarks) {
+    return (landmarks || [])
+        .filter((l) => l.title || l.meta)
+        .map((l) => ({ id: l.id, title: l.title || '', meta: l.meta || '' }));
+}
+
 /**
  * Makes the current drafts live. Order matters and the whole thing is safe to
  * re-run: images are flagged public first, then the gallery file -- one
  * object overwrite, the atomic switch -- then bookkeeping and cleanup.
  */
-export async function publish(backend, artworks, published, onStep = () => {}) {
+export async function publish(backend, artworks, landmarks, published, onStep = () => {}) {
     const ready = artworks.filter((a) => a.status === 'ready');
     const pubs = publicArtworks(backend, artworks);
 
@@ -22,7 +30,10 @@ export async function publish(backend, artworks, published, onStep = () => {}) {
     onStep('Going live');
     const revision = ((published && published.revision) || 0) + 1;
     const publishedAt = new Date().toISOString();
-    const gallery = { schemaVersion: SCHEMA_VERSION, revision, publishedAt, artworks: pubs };
+    const gallery = {
+        schemaVersion: SCHEMA_VERSION, revision, publishedAt,
+        artworks: pubs, landmarks: publicLandmarks(landmarks)
+    };
     await backend.putGallery(JSON.stringify(gallery), revision);
 
     const hashes = Object.fromEntries(pubs.map((p) => [p.id, hashPublic(p)]));

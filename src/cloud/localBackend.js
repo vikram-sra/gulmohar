@@ -8,8 +8,10 @@ const LOCAL_USER = { uid: 'local-artist', name: 'Local artist', email: null, pho
 const SIGNED_IN_KEY = 'gulmohar-studio-local-signed-in';
 
 function readDocs() {
-    try { return JSON.parse(localStorage.getItem(DOCS_KEY)) || { artworks: {}, published: null }; }
-    catch { return { artworks: {}, published: null }; }
+    try {
+        const d = JSON.parse(localStorage.getItem(DOCS_KEY)) || {};
+        return { artworks: d.artworks || {}, landmarks: d.landmarks || {}, published: d.published || null };
+    } catch { return { artworks: {}, landmarks: {}, published: null }; }
 }
 function writeDocs(docs) { localStorage.setItem(DOCS_KEY, JSON.stringify(docs)); }
 
@@ -39,6 +41,7 @@ let _backend = null;
 export function createLocalBackend() {
     if (_backend) return _backend;
     const artworkListeners = new Set();
+    const landmarkListeners = new Set();
     const publishedListeners = new Set();
     const userListeners = new Set();
     const urlCache = new Map();
@@ -47,6 +50,7 @@ export function createLocalBackend() {
         const docs = readDocs();
         const list = Object.values(docs.artworks).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         artworkListeners.forEach((cb) => cb(list, { pending: false, fromCache: false }));
+        landmarkListeners.forEach((cb) => cb(Object.values(docs.landmarks)));
         publishedListeners.forEach((cb) => cb(docs.published));
     };
     const mutate = (fn) => { const docs = readDocs(); fn(docs); writeDocs(docs); emit(); };
@@ -101,6 +105,17 @@ export function createLocalBackend() {
             }));
         },
         async deleteArtworkDoc(id) { mutate((d) => { delete d.artworks[id]; }); },
+
+        watchLandmarks(cb) {
+            landmarkListeners.add(cb);
+            queueMicrotask(emit);
+            return () => landmarkListeners.delete(cb);
+        },
+        async updateLandmark(id, patch) {
+            mutate((d) => {
+                d.landmarks[id] = { ...(d.landmarks[id] || { id }), ...patch, updatedAt: Date.now() };
+            });
+        },
 
         async putImage(path, blob, { onProgress } = {}) {
             await idbOp('readwrite', (s) => s.put(blob, path));

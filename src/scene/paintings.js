@@ -517,7 +517,11 @@ export async function loadPlacements() {
                     const paintings = data.artworks
                         .map((a) => toPlacementRecord(a, { preferMedium }))
                         .filter(Boolean);
-                    return { version: data.schemaVersion || 1, paintings };
+                    // Landmark name/description overrides -- see
+                    // src/studio/gardenSection.js. Not every garden fixture
+                    // needs to have been touched, so this is whatever subset
+                    // an artist actually edited and published, not all five.
+                    return { version: data.schemaVersion || 1, paintings, landmarks: data.landmarks || [] };
                 }
             }
         } catch {
@@ -526,11 +530,15 @@ export async function loadPlacements() {
     }
     try {
         const res = await fetch(getAssetUrl('paintings.json'), { cache: 'no-cache' });
-        if (!res.ok) return { version: 1, paintings: [] };
+        if (!res.ok) return { version: 1, paintings: [], landmarks: [] };
         const data = await res.json();
-        return { version: 1, paintings: Array.isArray(data.paintings) ? data.paintings : [] };
+        return {
+            version: 1,
+            paintings: Array.isArray(data.paintings) ? data.paintings : [],
+            landmarks: Array.isArray(data.landmarks) ? data.landmarks : []
+        };
     } catch {
-        return { version: 1, paintings: [] };
+        return { version: 1, paintings: [], landmarks: [] };
     }
 }
 

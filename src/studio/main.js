@@ -1,6 +1,7 @@
 import './studio.css';
 import { el, toast, confirmDialog } from './dom.js';
 import { createGrid } from './grid.js';
+import { createGardenSection } from './gardenSection.js';
 import { createUploadSection } from './upload.js';
 import { openEditDialog } from './detail.js';
 import { getBackend } from '../cloud/backend.js';
@@ -16,6 +17,7 @@ import { writeZip } from '../edit/zip.js';
 const root = document.getElementById('studio');
 let backend = null;
 let artworks = [];
+let landmarks = [];
 let published = null;
 let syncState = 'synced';
 let appBuilt = false;
@@ -84,6 +86,7 @@ function buildApp() {
     const gridEl = el('ul', { class: 'grid' });
     const empty = el('div', { class: 'empty', hidden: true });
     const uploadHost = el('div');
+    const gardenHost = el('div');
 
     root.replaceChildren(
         header(chip, publishBtn, moreBtn),
@@ -91,9 +94,18 @@ function buildApp() {
         el('section', { 'aria-labelledby': 'h-all' },
             el('div', { class: 'section-head' }, el('h2', { id: 'h-all', text: 'All paintings' }), count),
             empty, gridEl),
+        el('section', { 'aria-labelledby': 'h-garden' },
+            el('div', { class: 'section-head' },
+                el('h2', { id: 'h-garden', text: 'Garden artifacts' }),
+                el('span', { class: 'count', text: 'The trees, the pavilion, the pond' })),
+            gardenHost),
         el('section', { 'aria-labelledby': 'h-add' },
             el('div', { class: 'section-head' }, el('h2', { id: 'h-add', text: 'Add a painting' })),
             uploadHost));
+
+    const garden = createGardenSection(gardenHost, {
+        onSave: (id, patch) => backend.updateLandmark(id, patch)
+    });
 
     const grid = createGrid(gridEl, {
         imageUrl: (img) => backend.imageUrl(img),
@@ -157,6 +169,8 @@ function buildApp() {
         artworks = list;
         setSync(meta.pending ? 'saving' : onlineState());
     }, (err) => toast(`Sync error: ${err.message}`, { error: true, ms: 6000 }));
+    backend.watchLandmarks((list) => { landmarks = list; garden.update(landmarks); },
+        (err) => toast(`Sync error: ${err.message}`, { error: true, ms: 6000 }));
     backend.watchPublished((p) => { published = p; render(); });
 
     publishBtn.addEventListener('click', async () => {
@@ -168,7 +182,7 @@ function buildApp() {
         if (!ok) return;
         publishBtn.disabled = true;
         try {
-            const r = await publish(backend, artworks, published, (step) => { publishBtn.textContent = `${step}…`; });
+            const r = await publish(backend, artworks, landmarks, published, (step) => { publishBtn.textContent = `${step}…`; });
             toast(`Live — ${r.count} painting${r.count === 1 ? '' : 's'} published.`);
         } catch (err) {
             console.error(err);
