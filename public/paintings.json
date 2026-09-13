@@ -63,6 +63,22 @@
       "rise": 0.75,
       "scale": 1,
       "startHere": true
+    },
+    {
+      "id": "chrome-glint",
+      "file": "portfolio/canopy.svg",
+      "widthIn": 16,
+      "heightIn": 20,
+      "title": "Reflection Study",
+      "year": 2026,
+      "medium": "Mixed media",
+      "frame": "chrome",
+      "anchor": "world",
+      "mount": "rope",
+      "position": [24.06, 1.85, 21.77],
+      "rotation": [0, 0.5, 0],
+      "rise": 1.0,
+      "scale": 1
     }
   ]
 }

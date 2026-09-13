@@ -260,7 +260,12 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
 const FRAME_STYLES = {
     'pale-wood': { color: 0xc9b79a, roughness: 0.62, metalness: 0.05 },
     'maple': { color: 0xc98a2e, roughness: 0.45, metalness: 0.15 },
-    'none': { color: 0x3a4238, roughness: 0.7, metalness: 0.0 }
+    'none': { color: 0x3a4238, roughness: 0.7, metalness: 0.0 },
+    // Near-mirror: low roughness so it actually specular-highlights against
+    // the sky and canopy rather than just reading as pale grey, which is all
+    // a high-metalness/high-roughness surface does under this garden's low
+    // (0.13) environment intensity.
+    'chrome': { color: 0xdde2e6, roughness: 0.1, metalness: 1.0 }
 };
 
 /**
@@ -308,6 +313,14 @@ export function createPaintingMesh(widthIn, heightIn, frameStyle = 'pale-wood') 
         const frameMat = new THREE.MeshStandardMaterial({
             color: style.color, roughness: style.roughness, metalness: style.metalness
         });
+        // A high-metalness surface reflects the room, not its own base
+        // colour -- at this garden's deliberately low environment intensity
+        // (0.13, tuned for the foliage, see main.js), that leaves a "chrome"
+        // frame reading as flat near-black rather than shiny. Lifting just
+        // this material's own share of that reflection is the correct knob
+        // (real per-material property), rather than raising the scene's
+        // intensity and relighting every leaf to make one frame glint.
+        if (style.metalness > 0.5) frameMat.envMapIntensity = 5.0;
         const bars = [
             { w: w + border * 2, h: border, x: 0, y: h / 2 + border / 2 },
             { w: w + border * 2, h: border, x: 0, y: -h / 2 - border / 2 },
