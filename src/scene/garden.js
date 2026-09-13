@@ -821,6 +821,42 @@ const BACKGROUND_TREES = [
     }
 ];
 
+// How wide a berth the gulmohar's canopy needs. Its own fitted radius is
+// about 10m; a little more keeps outer branches out of the frame too.
+const GULMOHAR_FRAME_CLEAR_R = 12.5;
+const _yAxis = new THREE.Vector3(0, 1, 0);
+
+/**
+ * Which way to step back from a tree at (tx, tz) to photograph it. Straight
+ * toward the garden centre is the ideal -- it puts the garden behind the
+ * subject -- so that is tried first, and the direction is swung further to
+ * the side only as far as it takes for both the camera position and the
+ * whole sightline to clear the gulmohar. Returns a unit vector.
+ */
+function standoffDirection(tx, tz, dist) {
+    const inward = new THREE.Vector3(-tx, 0, -tz).normalize();
+    const tree = new THREE.Vector3(tx, 0, tz);
+    const cam = new THREE.Vector3();
+    const seg = new THREE.Vector3();
+    let best = null;
+    // Alternating sides, widening: the first angle that clears wins, so the
+    // framing stays as close to "looking in over the garden" as it can.
+    for (const deg of [0, 30, -30, 50, -50, 70, -70, 90, -90, 110, -110]) {
+        const d = inward.clone().applyAxisAngle(_yAxis, THREE.MathUtils.degToRad(deg));
+        cam.copy(tree).addScaledVector(d, dist);
+        // Distance from the gulmohar (at the origin) to the camera-to-tree
+        // segment: how close the shot passes to the centrepiece.
+        seg.subVectors(tree, cam);
+        const len2 = seg.lengthSq();
+        const t = len2 > 0 ? THREE.MathUtils.clamp(-cam.dot(seg) / len2, 0, 1) : 0;
+        const clear = cam.clone().addScaledVector(seg, t).length();
+        if (best === null || clear > best.clear) best = { d, clear };
+        if (clear >= GULMOHAR_FRAME_CLEAR_R) return d;
+    }
+    // Nothing fully clears (a tree standing very close in): take the best.
+    return best.d;
+}
+
 function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
     const group = new THREE.Group();
     group.name = 'BackgroundTrees';
@@ -906,8 +942,13 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
 
         // Stand off toward the garden centre so the camera looks outward at
         // the tree with the rest of the garden behind it, never through it.
-        const inward = new THREE.Vector3(-wx, 0, -wz).normalize();
+        // Straight inward is not good enough on its own: these trees ring a
+        // gulmohar that is 20m across, so "toward the centre" walks the
+        // camera into the centrepiece and frames the banyan through a
+        // curtain of someone else's branches. Swing the stand-off to one
+        // side until the whole sightline clears the gulmohar.
         const dist = spec.height * 1.15 * Math.sqrt(w);
+        const inward = standoffDirection(wx, wz, dist);
         const camY = spec.kind === 'banyan' ? spec.height * 0.32 : spec.height * 0.52;
         const lookY = spec.kind === 'banyan' ? spec.height * 0.16 : spec.height * 0.42;
         interactives.push({

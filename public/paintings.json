@@ -108,13 +108,13 @@
       "anchor": "world",
       "mount": "surface",
       "position": [
-        -27.624,
+        -25.592,
         1.7,
-        14.245
+        15.206
       ],
       "rotation": [
         0,
-        2.753,
+        1.501,
         0
       ],
       "scale": 1

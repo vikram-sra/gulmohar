@@ -326,6 +326,21 @@ export function createMountFurniture(mount, w, h, rise, groundDrop, part = 'all'
             nailMesh.position.copy(nail);
             nailMesh.castShadow = false;
             group.add(nailMesh);
+            // Nailed to a tree, it also gets a cord up to a branch. The nail
+            // alone is a few dark pixels against bark: true to how the thing
+            // hangs, but it reads as a painting floating in front of a trunk,
+            // with nothing visibly holding it to the tree. The cord is what
+            // makes the attachment legible at any distance. Only drawn when
+            // there is really a branch overhead to reach -- on a gazebo post
+            // the rise is zero and the nail stands alone, correctly.
+            if (rise > ROPE_RISE_MIN_M) {
+                const line = strut(_ropeGeo, wire, nail, new THREE.Vector3(0, nail.y + rise, 0));
+                if (line) { line.castShadow = false; group.add(line); }
+                const hook = new THREE.Mesh(_hookGeo, hookMaterial());
+                hook.position.set(0, nail.y + rise, 0);
+                hook.castShadow = false;
+                group.add(hook);
+            }
         }
         if (wantTurning) {
             const top = h / 2 - 0.015;
@@ -498,8 +513,11 @@ export function mountPainting(record, gardenGroup, canopies = null) {
     if (mount === 'easel' || mount === 'rope' || mount === 'surface') {
         const scale = record.scale || 1;
         const groundY = groundHeightAt(group.position.x, group.position.z);
-        let riseM = record.rise || 0.9;
-        if (mount === 'rope' && canopies) {
+        // A surface mount has no authored rise -- it is nailed, not hung -- so
+        // it starts at zero and only gets a cord if a branch is really found
+        // overhead. A rope mount always has one.
+        let riseM = mount === 'surface' ? 0 : (record.rise || 0.9);
+        if ((mount === 'rope' || mount === 'surface') && canopies) {
             // Reach for the real canopy rather than trusting the saved rise
             // blindly: a tree that has grown, been re-scaled, or simply
             // wasn't what the placement was authored against would otherwise

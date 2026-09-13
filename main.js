@@ -1013,7 +1013,7 @@ class GulmoharApp {
                 this.fpsNavigator.requestPointerLock();
             }
             if (targetData && targetData.cameraTarget) this.setUIVisibility(true);
-            else this.toggleUIVisibility();
+            else this.hideUIForSceneTap();
             return;
         }
 
@@ -1049,7 +1049,7 @@ class GulmoharApp {
             // back on its own, from a click the visitor meant as nothing more
             // than "put the dock away". A click on empty space now does only
             // that, and leaves the camera exactly where it was.
-            this.toggleUIVisibility();
+            this.hideUIForSceneTap();
         }
     }
 
@@ -1368,7 +1368,13 @@ class GulmoharApp {
 
     resetUIHideTimer() {
         clearTimeout(this._uiHideTimer);
-        if (!this.uiVisible) this.setUIVisibility(true);
+        // A dock put away on purpose stays away. This runs on ordinary
+        // pointer activity, and a tap is pointer activity, so without this
+        // the tap's own move event summoned the dock straight back in the
+        // same gesture that dismissed it -- hideUIForSceneTap hid it and
+        // this line re-showed it a frame later. Only the orb (or a control)
+        // clears the dismissal.
+        if (!this.uiVisible && !this._uiDismissed) this.setUIVisibility(true);
         // Shorter while walking: the touch controls (joystick, jump, sprint)
         // already cover "how do I move", so the top dock lingering for the
         // same 6s it gets during idle orbiting just sits in the way of the
@@ -1393,11 +1399,29 @@ class GulmoharApp {
         }
     }
 
+    /**
+     * What a tap on empty scene means: put the dock away. Not a toggle --
+     * tapping the garden is how you get an unobstructed look at it, and a
+     * toggle made every other such tap pop the chrome back up over the view.
+     * The orb it collapses into is the way back, and it is right there.
+     */
+    hideUIForSceneTap() {
+        clearTimeout(this._uiHideTimer);
+        this._uiDismissed = true;
+        this.setUIVisibility(false);
+    }
+
     setUIVisibility(visible) {
         this.uiVisible = visible;
-        // The bar, not the whole dock: the orb is inside the dock too and is
-        // the one thing that never goes away.
+        // Anything that deliberately shows the dock -- the orb, clicking a
+        // landmark or a painting -- also lifts the dismissal, so the next
+        // idle timeout behaves normally again.
+        if (visible) this._uiDismissed = false;
+        // Two states of one control sharing a spot in the dock's grid: the
+        // bar grows out of the orb and the orb fades up through it, so
+        // exactly one of the pair is ever showing.
         if (this.uiBar) this.uiBar.classList.toggle('bar-collapsed', !visible);
+        if (this.homeOrb) this.homeOrb.classList.toggle('orb-hidden', visible);
         const clock = document.getElementById('clock');
         if (clock) clock.classList.toggle('ui-hidden', !visible);
     }
@@ -1638,7 +1662,12 @@ class GulmoharApp {
         // on Day/Night/Motion. One fewer button, and one motion model:
         // Motion's tap pauses or resumes everything together, its hold fast-
         // forwards it, and Day/Night still jump straight to a chosen hour.
-        wrapper.append(walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
+        // Home leads the bar. The orb is the same control collapsed, and the
+        // orb is gone while the bar is open, so without this there is no way
+        // back to the start without first closing the dock.
+        const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home · back to the garden');
+
+        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
 
         if (SITE.instagram) {
             wrapper.append(createBtn(icons.instagram, () => {
@@ -1667,6 +1696,10 @@ class GulmoharApp {
         orb.addEventListener('click', (e) => {
             e.stopPropagation();
             this.resetScene();
+            // The orb is the way back from a dock the visitor put away, so it
+            // lifts the dismissal before asking for the dock -- otherwise the
+            // guard in resetUIHideTimer would swallow its own summons.
+            this._uiDismissed = false;
             this.resetUIHideTimer();
         });
         container.appendChild(orb);

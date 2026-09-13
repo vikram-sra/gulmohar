@@ -193,17 +193,21 @@
     /* --- dock -------------------------------------------------------------
        pointer-events: none on the bar with auto on the controls is what lets a
        drag through the gaps between buttons still orbit the camera. */
+    /* The bar and the orb are stacked in one grid cell rather than laid out
+       one above the other: they are two states of the same control, so they
+       share a centre and the collapse reads as the dock shrinking into the
+       tree it came out of instead of sliding down past it. */
     #dock {
       position: absolute;
       bottom: calc(34px + env(safe-area-inset-bottom));
       width: 100%;
-      display: flex;
-      flex-direction: column;
+      display: grid;
+      justify-items: center;
       align-items: center;
-      gap: 6px;
       z-index: 1000;
       pointer-events: none;
     }
+    #dock > * { grid-area: 1 / 1; }
     .glass-bar-wrapper {
       pointer-events: auto;
       background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
@@ -274,19 +278,28 @@
     .glass-btn .btn-tip.tip-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .ui-hidden { opacity: 0; transform: translateY(12px); pointer-events: none; }
-    /* The bar doesn't just fade -- it drops and shrinks into the orb sat
-       directly beneath it, so "where did the controls go" has a visible
-       answer and the orb reads as the thing they went into. The orb is a
-       sibling inside #dock and is never given this class, so it stays. */
-    .glass-bar-wrapper {
-      transform-origin: bottom center;
-      transition: opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1),
-                  transform 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+    /* One control in two states. The bar grows out of the orb's own footprint
+       and shrinks back into it, and the orb fades up through the bar as it
+       goes -- both on the same curve and duration, so the pair reads as a
+       single thing expanding rather than two elements swapping. Scaled from
+       the shared centre, which is the point the two states have in common. */
+    .glass-bar-wrapper, #home-orb {
+      transform-origin: center center;
+      transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.44s cubic-bezier(0.16, 1, 0.3, 1),
                   background 0.9s ease, border-color 0.9s ease, color 0.9s ease;
     }
+    /* Collapsed: the bar has shrunk to about the orb's width and vanished. */
     .glass-bar-wrapper.bar-collapsed {
       opacity: 0;
-      transform: translateY(30px) scale(0.34);
+      transform: scale(0.16);
+      pointer-events: none;
+    }
+    /* Expanded: the orb has swelled past the bar's edge and gone, leaving the
+       bar's own tree button in its place. */
+    #home-orb.orb-hidden {
+      opacity: 0;
+      transform: scale(2.1);
       pointer-events: none;
     }
 
