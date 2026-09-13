@@ -13,7 +13,10 @@ import { windUniforms } from './src/scene/wind.js';
 import { loadGarden, GARDEN_POINTS, groundHeightAt, POND_WATER_Y, POND_EXTENT } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
 import { createLawn } from './src/scene/lawn.js';
-import { loadPlacements, mountAllPaintings, updatePaintingBillboards, commitPaintingShadows, setBillboardFrozen } from './src/scene/paintings.js';
+import {
+    loadPlacements, mountAllPaintings, updatePaintingBillboards, commitPaintingShadows,
+    setBillboardFrozen, normalizeMount, METRES_PER_INCH
+} from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 import { FPSNavigator } from './src/controls/fpsNavigator.js';
@@ -1008,6 +1011,22 @@ class GulmoharApp {
         // release radius, so releasing on distance alone would let go on the
         // first frame; it arms only once the camera has actually arrived.
         this._paintingFocus = id ? { id, release: focusDist * 1.8 + 1.0, armed: false } : null;
+
+        // Only a painting resting on the ground has grass in front of it at
+        // all -- the other mounts stand clear of the lawn -- so only that one
+        // opens a patch. Cleared on both id === null (walked away) and any
+        // other mount, and lawn.tickClearZone eases the patch shut either
+        // way; it does not snap closed the instant focus changes.
+        const m = id && this.paintings && this.paintings.get(id);
+        const record = m && m.group.userData.placement;
+        if (record && normalizeMount(record.mount) === 'ground') {
+            const scale = record.scale || 1;
+            const w = (record.widthIn || 24) * METRES_PER_INCH * scale;
+            const h = (record.heightIn || 24) * METRES_PER_INCH * scale;
+            this._groundClearTarget = { x: m.group.position.x, z: m.group.position.z, radius: Math.max(w, h) / 2 + 0.4 };
+        } else {
+            this._groundClearTarget = null;
+        }
     }
 
     _updatePaintingFocus() {
@@ -1706,6 +1725,11 @@ class GulmoharApp {
         if (this.lawn) {
             this.camera.updateMatrixWorld();
             this.lawn.update(this.camera);
+            // Unconditional, unlike update() above: that call skips its own
+            // work once the camera stops moving, but the clear patch still
+            // has to keep easing in while you stand still studying the
+            // painting it is opening space around.
+            this.lawn.tickClearZone(this._groundClearTarget, dt);
         }
         // Also after the camera has moved, for the same reason. The shadow
         // gate runs earlier in the frame, so the flag is read on the next one

@@ -40,6 +40,11 @@ const MAX_DENSITY = 0.115;
 // and it reads as loose bristles standing on soil. Burying them hides the
 // ends and the tufts close over into turf.
 const BLADE_SINK_M = 0.05;
+// How fast the parted patch grows/closes around a focused ground painting.
+// Slower than the billboard turn (3.5): the grass moving is a bigger visual
+// event than a painting's own rotation, and easing it in gently reads as the
+// grass settling aside rather than an area just switching off.
+const CLEAR_ZONE_RESPONSE = 2.2;
 const LOD_FRACTIONS = [1, 1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32].map((f) => f * MAX_DENSITY);
 const MASK_SIZE_M = 100;              // the mask spans the whole ground plane
 const MASK_RES = 400;                 // 25cm texels
@@ -191,6 +196,13 @@ uniform sampler2D uLawnMask;
 uniform vec3 uLawnMaskXform;   // min x, min z, 1/size
 uniform vec3 uLawnCam;
 uniform vec4 uLawnFade;        // near, far, far density, global density
+uniform vec4 uClearZone;       // x, z, radius, fade width -- parts the grass
+                                // around a ground-lain painting while it is
+                                // being looked at, so blades don't poke in
+                                // front of the canvas. Radius sits far
+                                // negative when idle, so the smoothstep below
+                                // resolves to 1 (no effect) everywhere without
+                                // a branch.
 uniform float uWindTime;
 uniform float uWindStrength;
 varying float vBladeT;
@@ -221,6 +233,11 @@ varying vec3 vTileTint;
     // Fuzzy mask edge: each blade gets its own threshold, so path and pond
     // borders read as a ragged edge of grass, not a stencil.
     grow *= step(0.25 + 0.5 * fract(key * 61.7), mask.g);
+    // Part around a ground-lain painting while it is being viewed, so blades
+    // don't stand in front of the canvas at close range. Smooth, not a
+    // stencil edge, and per-blade rather than per-tuft so it reads as the
+    // grass being nudged aside rather than a bare disc appearing.
+    grow *= smoothstep(uClearZone.z, uClearZone.z + uClearZone.w, distance(rootW.xz, uClearZone.xy));
 
     float along = clamp((position.y - aBlade.y) / aBladeH, 0.0, 1.0);
     vBladeT = along;
@@ -264,7 +281,7 @@ diffuseColor.rgb *= mix(0.45, 1.0, smoothstep(0.0, 0.55, vBladeT));`
 /**
  * @param {object} gltf      loaded models/grass_blades.glb
  * @param {object} options   { radius, density (0..1, tier) }
- * @returns {{ group, update(camera), setDensityScale(s), stats() } | null}
+ * @returns {{ group, update(camera), setDensityScale(s), tickClearZone(target, dt), stats() } | null}
  */
 export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
     let source = null;
@@ -288,7 +305,10 @@ export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
         uLawnMask: { value: mask },
         uLawnMaskXform: { value: new THREE.Vector3(-MASK_SIZE_M / 2, -MASK_SIZE_M / 2, 1 / MASK_SIZE_M) },
         uLawnCam: { value: new THREE.Vector3() },
-        uLawnFade: { value: new THREE.Vector4(4, 26, 0.11, MAX_DENSITY * density) }
+        uLawnFade: { value: new THREE.Vector4(4, 26, 0.11, MAX_DENSITY * density) },
+        // -1000 radius: smoothstep(-1000, -1000+fade, d) reads 1 for every
+        // real distance, i.e. no clearing, without a branch in the shader.
+        uClearZone: { value: new THREE.Vector4(0, 0, -1000, 0.7) }
     };
 
     // A plain matte material, not the loaded one: the asset is spec-gloss,
@@ -357,6 +377,12 @@ export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
         return { fraction, mesh, tint: tintAttr };
     });
 
+    // Clear-zone state lives outside the uniform itself so the centre can
+    // stay put while the radius eases back to zero on release -- reading the
+    // uniform back each frame would work too, but this keeps the target
+    // explicit instead of round-tripping it through GPU-bound state.
+    let clearX = 0, clearZ = 0, clearRadius = 0;
+
     const frustum = new THREE.Frustum();
     const projView = new THREE.Matrix4();
     const sphere = new THREE.Sphere(new THREE.Vector3(), tuftRadius * 1.6);
@@ -408,6 +434,26 @@ export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
         update,
         /** The adaptive quality loop's lever: 1 = the tier's density. */
         setDensityScale(s) { uniforms.uLawnFade.value.w = MAX_DENSITY * density * s; },
+        /**
+         * Eases the parted patch toward `target` ({x, z, radius}) each frame,
+         * or toward closed when `target` is null. Called unconditionally from
+         * the render loop -- unlike update(), which skips work when the
+         * camera hasn't moved, this has to keep easing even while the viewer
+         * stands still looking at the painting it is clearing space around.
+         */
+        tickClearZone(target, dt) {
+            if (target) { clearX = target.x; clearZ = target.z; }
+            const targetRadius = target ? target.radius : 0;
+            const ease = 1 - Math.exp(-CLEAR_ZONE_RESPONSE * Math.min(dt, 0.1));
+            clearRadius += (targetRadius - clearRadius) * ease;
+            const v = uniforms.uClearZone.value;
+            // Snap the rest of the way and park far off once it is close
+            // enough to zero to be invisible -- an exponential ease never
+            // quite reaches its target, so without this the shader carries a
+            // permanent, pointless near-zero-radius clear circle.
+            if (clearRadius < 0.02) { clearRadius = 0; v.set(clearX, clearZ, -1000, 0.7); }
+            else v.set(clearX, clearZ, clearRadius, 0.7);
+        },
         stats() {
             let tris = 0;
             for (const l of lods) tris += l.mesh.count * l.mesh.geometry.drawRange.count / 3;
