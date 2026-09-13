@@ -40,7 +40,7 @@ const TIERS = {
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
         canopySide: THREE.DoubleSide,
         skySegW: 24, skySegH: 16, dustCount: 60,
-        dofTaps: 8, dofMaxBlurPx: 3.0
+        dofTaps: 8, dofMaxBlurPx: 2.0
     },
     high: {
         floorLeafCount: 45, microPlantCount: 60,
@@ -54,7 +54,7 @@ const TIERS = {
         pixelRatioCap: 1.5, antialias: true, anisotropy: 8,
         canopySide: THREE.DoubleSide,
         skySegW: 32, skySegH: 24, dustCount: 100,
-        dofTaps: 12, dofMaxBlurPx: 4.0
+        dofTaps: 12, dofMaxBlurPx: 2.6
     }
 };
 

@@ -95,7 +95,12 @@ void main() {
     // The common case -- most of a frame sits near the focal plane -- exits
     // after one depth sample and one colour sample, so the full tap loop
     // only ever runs over the parts of the frame that are actually blurred.
-    if (centreCoc < 0.004) { gl_FragColor = centre; return; }
+    // The threshold is deliberately not tiny: anything under it reads as
+    // fully sharp with no softening at all, which is what keeps a wide
+    // "roughly in focus" middle ground of the frame genuinely crisp instead
+    // of carrying a faint haze everywhere that never quite reads as either
+    // sharp or blurred.
+    if (centreCoc < 0.05) { gl_FragColor = centre; return; }
 
     const float GOLDEN = 2.399963;
     vec3 sum = centre.rgb;
@@ -122,7 +127,7 @@ export class DofPass extends Pass {
      * @param {THREE.PerspectiveCamera} camera
      * @param {{taps:number, maxBlurPx:number, nearRange?:number, farRange?:number}} opts
      */
-    constructor(camera, { taps, maxBlurPx, nearRange = 2.6, farRange = 11.0 }) {
+    constructor(camera, { taps, maxBlurPx, nearRange = 6.0, farRange = 20.0 }) {
         super();
         this.camera = camera;
         this.needsSwap = true;
