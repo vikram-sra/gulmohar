@@ -233,7 +233,7 @@ export async function attachPlaceMode(app, artworkId) {
     // at 15Hz and new geometry every tick is pure garbage.
     let ghostProp = null, ghostPropKey = '';
     function ghostFurniture(mount, t) {
-        const key = mount === 'easel' || mount === 'rope'
+        const key = mount === 'easel' || mount === 'rope' || mount === 'surface'
             ? `${mount}|${state.size.toFixed(2)}|${t.rise.toFixed(2)}|${(t.position.y - state.aim.ground).toFixed(2)}`
             : '';
         if (key === ghostPropKey) return;
@@ -265,7 +265,7 @@ export async function attachPlaceMode(app, artworkId) {
         apply(live.group, t);
 
         if (furniture) { live.group.remove(furniture); furniture = null; }
-        if (mount === 'easel' || mount === 'rope') {
+        if (mount === 'easel' || mount === 'rope' || mount === 'surface') {
             const drop = Math.max((t.position.y - state.aim.ground) / state.size, 0);
             furniture = createMountFurniture(mount, w, h, t.rise / state.size, drop);
             if (furniture) live.group.add(furniture);

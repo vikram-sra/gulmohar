@@ -5,7 +5,10 @@ import { createUploadSection } from './upload.js';
 import { openEditDialog } from './detail.js';
 import { getBackend } from '../cloud/backend.js';
 import { toPublicArtwork, hashPublic, pendingChanges } from '../cloud/schema.js';
-import { uploadNewArtwork, replaceArtworkImage, trashArtwork, reorderArtworks, nextOrder } from '../cloud/artworks.js';
+import {
+    uploadNewArtwork, replaceArtworkImage, trashArtwork, reorderArtworks, nextOrder,
+    setStartHere, clearStartHere
+} from '../cloud/artworks.js';
 import { publish, publicArtworks } from '../cloud/publish.js';
 import { processImage } from '../cloud/images.js';
 import { writeZip } from '../edit/zip.js';
@@ -111,7 +114,14 @@ function buildApp() {
             });
             if (ok) { await trashArtwork(backend, a, (published && published.hashes) || {}); toast('Deleted.'); }
         },
-        onReorder: (ids) => reorderArtworks(backend, ids).catch((e) => toast(`Couldn’t reorder: ${e.message}`, { error: true }))
+        onReorder: (ids) => reorderArtworks(backend, ids).catch((e) => toast(`Couldn’t reorder: ${e.message}`, { error: true })),
+        onToggleStartHere: (a) => {
+            const turningOn = !a.startHere;
+            const write = turningOn ? setStartHere(backend, artworks, a.id) : clearStartHere(backend, artworks);
+            return write
+                .then(() => toast(turningOn ? `Visitors now open on “${a.title || 'Untitled'}”.` : 'No longer the opening view.'))
+                .catch((e) => toast(`Couldn’t change that: ${e.message}`, { error: true }));
+        }
     });
 
     const upload = createUploadSection(uploadHost, {

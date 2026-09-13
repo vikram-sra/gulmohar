@@ -2,12 +2,19 @@ import * as THREE from 'three';
 import gsap from 'gsap';
 import { groundHeightAt } from '../scene/garden.js';
 
-const EYE_HEIGHT = 1.65;
+// A literal average adult eye height (1.65) reads as crouched in a garden
+// scaled the way this one is -- the gulmohar alone is 11.5m tall, the grass
+// brushes past at knee height, and looking slightly further down at the
+// world reads more like a child's-eye view than a comfortable walk.
+const EYE_HEIGHT = 1.78;
 const WALK_SPEED = 4.2;
 const SPRINT_SPEED = 7.5;
 const ACCEL = 32.0;
 const FRICTION = 14.0;
 const MAX_RADIUS = 37.5;
+// How close the camera itself may get to a trunk's fitted radius -- an eye,
+// not a point, and bark this close would already be clipping the near plane.
+const PLAYER_RADIUS = 0.35;
 const JUMP_IMPULSE = 6.2;
 const GRAVITY = 18.0;
 
@@ -501,6 +508,11 @@ export class FPSNavigator {
         this.enable();
     }
 
+    /** @param {Array<{x:number,z:number,radius:number}>} circles */
+    setColliders(circles) {
+        this._colliders = circles;
+    }
+
     disable() {
         this.enabled = false;
         this.keys.forward = false;
@@ -627,6 +639,26 @@ export class FPSNavigator {
             this.position.z *= scale;
             this.velocity.x *= 0.5;
             this.velocity.z *= 0.5;
+        }
+
+        // Trunk collision: pushed back out to the trunk's own edge along the
+        // line from its centre, not simply halted, so walking into a trunk
+        // at an angle slides you around it rather than stopping you dead
+        // against invisible geometry. Cheap -- a handful of circles, not a
+        // mesh collider -- and reuses the same fitted trunk radii place mode
+        // aims rope/surface mounts against, so a trunk you can lean a
+        // painting on is also one you cannot walk through.
+        if (this._colliders) {
+            for (const c of this._colliders) {
+                const dx = this.position.x - c.x, dz = this.position.z - c.z;
+                const minDist = c.radius + PLAYER_RADIUS;
+                const d = Math.hypot(dx, dz);
+                if (d > 1e-4 && d < minDist) {
+                    const push = minDist / d;
+                    this.position.x = c.x + dx * push;
+                    this.position.z = c.z + dz * push;
+                }
+            }
         }
 
         // Sample terrain height smoothly

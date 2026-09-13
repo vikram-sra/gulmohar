@@ -26,20 +26,20 @@ import { groundHeightAt, isGroundClear } from './garden.js';
 //     jittered grid and ignore the garden's layout entirely.
 // ---------------------------------------------------------------------------
 
-const BLADE_HEIGHT_M = 0.20;          // median blade: lawn, not meadow; the tuft has some taller stalks
+const BLADE_HEIGHT_M = 0.12;          // median blade: a kept lawn, not a meadow -- was 0.20, read as shin-height
 // A whole tuft is ~2,600 blades per square metre once neighbours overlap:
 // a felt mat, and 3M triangles in view (measured). Budgeted instead at ~400
 // blades/m2 up close thinning to ~30/m2 at the rim -- measured ~500k
 // triangles in the landing view at the top tier and ~110k at the low tier
 // (the old card lawn's low-tier cost), and it still reads as full grass
 // because the blades are long.
-const MAX_DENSITY = 0.115;
+const MAX_DENSITY = 0.16;
 // How far the blade roots are pushed below the ground they are planted on.
 // Grass grows out of a mat of older growth, not off a clean surface -- with
 // the roots sitting exactly on the ground you see the bottom of every blade
 // and it reads as loose bristles standing on soil. Burying them hides the
 // ends and the tufts close over into turf.
-const BLADE_SINK_M = 0.05;
+const BLADE_SINK_M = 0.03;   // scaled down with the shorter blade -- 0.05 buried a third of a 0.12m blade
 // How fast the parted patch grows/closes around a focused ground painting.
 // Slower than the billboard turn (3.5): the grass moving is a bigger visual
 // event than a painting's own rotation, and easing it in gently reads as the

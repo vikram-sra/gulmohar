@@ -54,10 +54,15 @@ export function createGrid(container, actions) {
             const a = card.artwork;
             const idx = order.indexOf(a.id);
             const item = (text, fn, cls) => el('button', { type: 'button', role: 'menuitem', class: cls, text, onclick: () => { closeMenu(); fn(); } });
+            const placed = a.placement && a.placement.placed;
             openMenu = el('div', { class: 'menu', role: 'menu' },
                 idx > 0 ? item('Move earlier', () => move(a.id, -1)) : null,
                 idx < order.length - 1 ? item('Move later', () => move(a.id, 1)) : null,
-                a.placement && a.placement.placed ? item('Remove from garden', () => actions.onUnplace(a)) : null,
+                placed ? item('Remove from garden', () => actions.onUnplace(a)) : null,
+                // Only a placed painting has anywhere for the opening camera
+                // to fly to -- see schema.js's toPublicArtwork.
+                placed ? item(a.startHere ? 'Stop opening here' : 'Open the garden here',
+                    () => actions.onToggleStartHere(a)) : null,
                 el('hr'),
                 item('Delete painting', () => actions.onDelete(a), 'danger'));
             node.append(openMenu);
@@ -122,6 +127,7 @@ export function createGrid(container, actions) {
         const parts = [
             a.status === 'uploading' ? 'Upload incomplete' : null,
             placed ? 'In garden' : 'Not placed',
+            a.startHere ? 'Opening view' : null,
             status ? { live: 'Live', changed: 'Changed', new: 'Not live yet' }[status] : null,
             AVAIL_LABEL[a.availability] || null
         ].filter(Boolean);
@@ -130,6 +136,10 @@ export function createGrid(container, actions) {
         // warning -- colouring it would make the whole wall amber before the
         // first publish and leave nothing for the states that do need a look.
         card.status.classList.toggle('warn', a.status === 'uploading' || status === 'changed');
+        // A visible ring round the frame itself, not just a word in the
+        // caption -- the one painting a scroll through twenty others should
+        // catch the eye on, not require reading every line to find.
+        card.el.classList.toggle('start-here', !!a.startHere);
 
         const thumb = a.images && a.images.thumb;
         const key = thumb ? thumb.path : null;

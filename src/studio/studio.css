@@ -111,6 +111,10 @@ body.studio { padding-bottom: 80px; }
 .card .m { color: var(--muted); font-size: .8rem; }
 .card .s { color: var(--muted); font-size: .72rem; letter-spacing: .04rem; }
 .card .s.warn { color: #9a6a12; }
+/* The one painting visitors land on -- a ring on the frame itself catches
+   the eye scrolling past, not just a word in the caption underneath. */
+.card.start-here .art { outline: 2px solid var(--gold); outline-offset: 10px; border-radius: 6px; }
+.card.start-here .s { color: var(--gold); }
 .icon-btn {
   width: 34px; height: 34px; border-radius: 50%; border: 1px solid transparent; background: transparent;
   cursor: pointer; color: var(--muted); display: inline-flex; align-items: center; justify-content: center;

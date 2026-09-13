@@ -112,3 +112,22 @@ export function nextOrder(artworks) {
 export function savePlacements(backend, placements) {
     return backend.updateMany(Object.entries(placements).map(([id, placement]) => [id, { placement }]));
 }
+
+/**
+ * The painting a visitor's camera opens on. Exclusive -- setting one clears
+ * any other, in the same write, so two artworks can never both claim it
+ * (which the last publish to load would resolve arbitrarily and no artist
+ * would be able to predict).
+ */
+export function setStartHere(backend, artworks, id) {
+    const entries = artworks
+        .filter((a) => a.startHere && a.id !== id)
+        .map((a) => [a.id, { startHere: false }]);
+    entries.push([id, { startHere: true }]);
+    return backend.updateMany(entries);
+}
+
+export function clearStartHere(backend, artworks) {
+    const entries = artworks.filter((a) => a.startHere).map((a) => [a.id, { startHere: false }]);
+    return entries.length ? backend.updateMany(entries) : Promise.resolve();
+}

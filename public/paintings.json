@@ -61,7 +61,8 @@
       "position": [4.6, 2.0452, 4.6],
       "rotation": [0, 0.86994, 0],
       "rise": 0.75,
-      "scale": 1
+      "scale": 1,
+      "startHere": true
     }
   ]
 }

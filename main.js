@@ -18,6 +18,10 @@ import {
     loadPlacements, mountAllPaintings, updatePaintingBillboards, commitPaintingShadows,
     setBillboardFrozen, normalizeMount, METRES_PER_INCH
 } from './src/scene/paintings.js';
+// SDK-free geometry (see its own header) -- fitting trunk circles once at
+// load, for collision, is the same one-time cost already paid here for the
+// rope mount's canopy data, just also keeping the trunk half of the result.
+import { fitSurfaces } from './src/place/surfaces.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 import { FPSNavigator } from './src/controls/fpsNavigator.js';
@@ -761,6 +765,12 @@ class GulmoharApp {
             });
             this.scene.add(this.lawnPlants);
 
+            // Trunks become simple collision circles -- so a garden you can
+            // hang a painting on the bark of is also one you cannot walk
+            // straight through. Gazebo posts and the pond aren't covered yet.
+            const trunkColliders = fitSurfaces(garden.group).trunks;
+            this.fpsNavigator.setColliders(trunkColliders);
+
             // Paintings: a 404 on paintings.json resolves to an empty list
             // rather than rejecting, so a garden with nothing hung yet is not
             // an error state. Mounted onto named anchors within garden.group
@@ -770,6 +780,16 @@ class GulmoharApp {
                 this.paintings = mountAllPaintings(garden.group, data.paintings, (object, hoverData) => {
                     this._registerHover(object, hoverData);
                 });
+
+                // Every placed painting blocks walking through it too, not
+                // just the trees -- a small circle at its own footprint,
+                // added to the same list the trunks are already in.
+                const paintingColliders = [...this.paintings.values()].map(({ group }) => {
+                    const p = group.userData.placement;
+                    const longSide = Math.max(p.widthIn || 24, p.heightIn || 24) * METRES_PER_INCH * (p.scale || 1);
+                    return { x: group.position.x, z: group.position.z, radius: Math.max(longSide / 2, 0.25) };
+                });
+                this.fpsNavigator.setColliders([...trunkColliders, ...paintingColliders]);
 
                 this._contentReady = true;
                 this.renderer.shadowMap.needsUpdate = true;
@@ -953,16 +973,38 @@ class GulmoharApp {
             if (grHits.length) hitPoint = grHits[0].point.clone();
         }
 
+        // A painting behaves identically wherever it was clicked from -- the
+        // same framed, dolly-zoomable, billboard-tracking focus onClick
+        // already gives it in orbit mode, not the FPS fast-travel-and-stare
+        // landmarks get. Handled first and unconditionally, so walk mode
+        // simply hands off to orbit for it rather than keeping a second,
+        // divergent way to look at a painting in sync with the first.
+        if (targetData && targetData.kind === 'painting' && targetData.cameraTarget) {
+            if (this.navMode === 'walk') this.setNavMode('orbit');
+            const { pos, lookAt, worldHeight } = targetData.cameraTarget;
+            this.controls.minDistance = this._paintingDollyLimit(worldHeight, pos.distanceTo(lookAt));
+            this._setPaintingFocus(targetData.id, pos.distanceTo(lookAt));
+            gsap.killTweensOf(this.camera.position);
+            gsap.killTweensOf(this.controls.target);
+            gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: 1.4, ease: 'power2.inOut' });
+            gsap.to(this.controls.target, { x: lookAt.x, y: lookAt.y, z: lookAt.z, duration: 1.4, ease: 'power2.inOut' });
+            this.setUIVisibility(true);
+            return;
+        }
+
         if (this.navMode === 'walk') {
             if (targetData && targetData.cameraTarget) {
-                // Landmark or painting fast travel at human eye height
-                const { pos, lookAt } = targetData.cameraTarget;
-                this._setPaintingFocus(targetData.kind === 'painting' ? targetData.id : null, pos.distanceTo(lookAt));
-                this.fpsNavigator.fastTravelTo(pos.x, pos.z, lookAt, 1.3);
-            } else if (hitPoint) {
-                // Clicked on ground, path, trees, or rocks - fast travel directly there!
-                this.fpsNavigator.fastTravelTo(hitPoint.x, hitPoint.z, hitPoint, 1.2);
+                // A landmark still fast-travels to it on foot -- that is
+                // choosing a destination to walk toward, unlike a painting.
+                this.fpsNavigator.fastTravelTo(targetData.cameraTarget.pos.x, targetData.cameraTarget.pos.z, targetData.cameraTarget.lookAt, 1.3);
             } else if (!('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
+                // A tap on open ground/grass used to fast-travel there too,
+                // which is nearly every tap in walk mode -- WASD/the joystick
+                // already move you, so a tap meant to bring the dock back
+                // kept also snapping the camera to stare down at whatever
+                // patch of grass happened to be under the reticle. Now it
+                // does the one thing that tap actually meant: on desktop,
+                // re-arm mouse-look; either way, just reveal the dock.
                 this.fpsNavigator.requestPointerLock();
             }
             this.setUIVisibility(true);
@@ -970,16 +1012,15 @@ class GulmoharApp {
         }
 
         if (targetData && targetData.cameraTarget) {
+            // A landmark only -- a painting returned above already.
             const { pos, lookAt } = targetData.cameraTarget;
             // OrbitControls re-clamps the camera to minDistance on its next
             // update, so tweening to a spot nearer than that is undone within
-            // a frame. A painting wants to be viewed from about two metres --
-            // well inside the 6m floor the landmarks need -- which is why
-            // clicking one used to stop short and leave it small on screen.
-            this.controls.minDistance = Math.min(ORBIT_MIN_DISTANCE, pos.distanceTo(lookAt) * 0.9);
-            // Hold the chosen painting at the angle this shot was framed from.
-            // Time of day and wind keep running -- only this one canvas stops.
-            this._setPaintingFocus(targetData.kind === 'painting' ? targetData.id : null, pos.distanceTo(lookAt));
+            // a frame. Landmarks keep the coarser 6m floor; it is only a
+            // painting's focus that needs to drop all the way to filling the
+            // screen, handled in the painting branch above.
+            this.controls.minDistance = ORBIT_MIN_DISTANCE;
+            this._setPaintingFocus(null);
             gsap.killTweensOf(this.camera.position);
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, {
@@ -1007,6 +1048,23 @@ class GulmoharApp {
         } else {
             this.setUIVisibility(true);
         }
+    }
+
+    /**
+     * How close the orbit dolly may go once a painting is focused: all the
+     * way to filling the screen top to bottom, not an arbitrary fraction of
+     * the initial framed shot. `worldHeight` comes from the painting's own
+     * cameraTarget (undefined for a landmark, which keeps the old, coarser
+     * fraction-of-framing-distance floor those still need).
+     */
+    _paintingDollyLimit(worldHeight, framingDist) {
+        if (!worldHeight) return Math.min(ORBIT_MIN_DISTANCE, framingDist * 0.9);
+        const vFov = THREE.MathUtils.degToRad(this.camera.fov);
+        const fill = (worldHeight / 2) / Math.tan(vFov / 2);
+        // Never closer than just past the near clip plane -- without this a
+        // small painting's fill distance can undercut it and the camera
+        // clips straight through the canvas before reaching the limit.
+        return Math.max(fill, this.camera.near + 0.15);
     }
 
     /**
@@ -1094,6 +1152,15 @@ class GulmoharApp {
             return;
         }
 
+        // An artist can flag one placed painting as where a visitor's camera
+        // opens, instead of the standard establishing shot -- set from the
+        // Studio, see setStartHere() in src/cloud/artworks.js. Only a placed
+        // one can be flagged this meaningfully (see schema.js), but a flag
+        // left over from a since-unplaced painting is still handled here,
+        // not assumed away: it just falls through to the default intro below.
+        const startHere = this._findStartHerePainting();
+        if (startHere) { this._startIntroOnPainting(startHere); return; }
+
         // A snap to a distant bird's-eye followed by a slow-starting ease
         // read as a dead pause before anything moved. Starting from a small
         // pull-back on the final framing instead, eased straight into the
@@ -1109,6 +1176,41 @@ class GulmoharApp {
         tl.call(() => { this.controls.autoRotate = !this.motionPaused; }, null, 0);
         tl.fromTo(this.controls, { autoRotateSpeed: 0 },
             { autoRotateSpeed: -0.4, duration: 3.2, ease: 'sine.inOut' }, 0);
+    }
+
+    _findStartHerePainting() {
+        if (!this.paintings) return null;
+        for (const m of this.paintings.values()) {
+            if (m.group.userData.placement && m.group.userData.placement.startHere) return m;
+        }
+        return null;
+    }
+
+    /**
+     * The flagged-painting opening: the same framed shot a click on this
+     * painting would produce, approached from a small pull-back along the
+     * same sightline rather than snapped to directly, so it reads as the
+     * intended first move rather than the camera just starting there.
+     * Reuses the exact focus machinery a click uses (see onClick) -- the
+     * painting billboards toward the approaching camera, freezes once it
+     * arrives, and a ground-lain one parts the grass around it -- so this
+     * is not a separate, parallel path to keep in sync with that one.
+     */
+    _startIntroOnPainting(m) {
+        const { pos, lookAt, worldHeight } = m.interactive.data.cameraTarget;
+        const dist = pos.distanceTo(lookAt) || 1;
+        const pullBack = pos.clone().sub(lookAt).normalize().multiplyScalar(dist * 1.9).add(lookAt);
+        pullBack.y += 1.2;
+
+        this.camera.position.copy(pullBack);
+        this.controls.target.copy(lookAt);
+        this.controls.minDistance = this._paintingDollyLimit(worldHeight, dist);
+        this._setPaintingFocus(m.interactive.data.id, dist);
+
+        const tl = gsap.timeline();
+        this._introTl = tl;
+        tl.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: 2.6, ease: 'sine.inOut' }, 0);
+        tl.to(this.controls.target, { x: lookAt.x, y: lookAt.y, z: lookAt.z, duration: 2.6, ease: 'sine.inOut' }, 0);
     }
 
     /**
@@ -1289,7 +1391,12 @@ class GulmoharApp {
             // A rounded canopy over a short trunk -- this garden's landing
             // page is a tree-centred scene, so "home" reads more directly as
             // the gulmohar than the old diamond did.
-            home: `<svg viewBox="0 0 24 24"><path d="M12 3.4c-2.9 0-5.1 2.3-5.1 4.8 0 1 .3 1.9.9 2.6-1 .5-1.7 1.6-1.7 2.8 0 1.9 1.6 3.3 3.5 3.3H11v4.6h2v-4.6h1.4c1.9 0 3.5-1.4 3.5-3.3 0-1.2-.7-2.3-1.7-2.8.6-.7.9-1.6.9-2.6 0-2.5-2.2-4.8-5.1-4.8Z"/></svg>`,
+            // A two-tier pine silhouette, not a rounded canopy -- a circle-
+            // on-a-stick reads as a balloon or a lollipop at dock size just
+            // as easily as a tree, and the organic blob before that read as
+            // a smudge. Two stacked triangles over a trunk is unambiguous at
+            // any size, which is what an outline-only icon most needs.
+            home: `<svg viewBox="0 0 24 24"><path d="M12 3 9 9 15 9Z M12 6 6 15 18 15Z M12 15v5"/></svg>`,
             day: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v1.5M12 21.5V23M1 12h1.5M21.5 12H23"/></svg>`,
             night: `<svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
             pause: `<svg viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>`,

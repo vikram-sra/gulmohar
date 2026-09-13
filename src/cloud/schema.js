@@ -34,6 +34,11 @@ export function toPublicArtwork(a, urlFor) {
         availability: a.availability || 'available',
         order: a.order ?? 0,
         showOnWorkPage: a.showOnWorkPage !== false,
+        // The painting a visitor's camera opens on, instead of the default
+        // establishing shot. Only meaningful for a placed painting -- a flag
+        // on one still sitting in the Studio, unplaced, has nowhere in the
+        // garden to fly the camera to.
+        startHere: a.startHere === true,
         images: {
             aspect: img.aspect || widthIn / heightIn,
             thumb: img.thumb ? urlFor(img.thumb.path) : null,
@@ -71,7 +76,8 @@ export function toPlacementRecord(pub, { preferMedium = false } = {}) {
         position: pub.placement.position,
         rotation: pub.placement.rotation,
         scale: pub.placement.scale,
-        rise: pub.placement.rise
+        rise: pub.placement.rise,
+        startHere: pub.startHere === true
     };
 }
 
