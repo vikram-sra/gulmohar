@@ -56,17 +56,15 @@ export function normalizeMount(mount) {
     return LEGACY_MOUNTS[mount] || 'surface';
 }
 
-// Paintings turn to face whoever is looking at them, as far as the thing
-// holding them up allows. Ropes swing, an easel can be walked round, and a
-// canvas leaning on the grass can be turned where it stands -- all three
-// carry their own furniture with them, so they may face you outright. Only a
-// painting nailed flat to bark is pinned: it drifts, or it would rotate off
-// the trunk it hangs on.
+// Every hung painting turns to face whoever is looking at it, without limit
+// -- most noticeably once you have zoomed in on one, where standing still
+// and having it not turn with you would read as broken far more than a
+// surface-mounted canvas swinging off its own nail reads as physically odd.
 const BILLBOARD_LIMIT = {
     rope: Math.PI,
     easel: Math.PI,
     ground: Math.PI,
-    surface: THREE.MathUtils.degToRad(20)
+    surface: Math.PI
 };
 // How fast a painting settles toward facing you. Exponential, so it is
 // frame-rate independent and never overshoots.
@@ -126,6 +124,16 @@ function hookMaterial() {
         });
     }
     return hookMaterial._m;
+}
+
+// A small dark nail for the surface mount -- the point is legibility up
+// close (what is this actually hanging from?), not a beacon like the rope
+// mount's brass hook, so no emissive: it should read as hardware, not glint.
+function nailMaterial() {
+    if (!nailMaterial._m) {
+        nailMaterial._m = new THREE.MeshStandardMaterial({ color: 0x3d3a35, roughness: 0.42, metalness: 0.85 });
+    }
+    return nailMaterial._m;
 }
 
 /** A leg/rope as a scaled unit cylinder from `a` to `b` (both local). */
@@ -224,6 +232,25 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
         hook.position.copy(knot);
         hook.castShadow = false;
         group.add(hook);
+        return group;
+    }
+
+    if (mount === 'surface') {
+        // A nail driven into the bark just above the frame, with a short
+        // picture wire down to each top corner -- without this a painting
+        // hung flat on a trunk had nothing visibly holding it there at all.
+        const wire = ropeMaterial();
+        const nail = new THREE.Vector3(0, h / 2 + 0.035, 0.012);
+        const nailMesh = new THREE.Mesh(_hookGeo, nailMaterial());
+        nailMesh.scale.setScalar(0.5);
+        nailMesh.position.copy(nail);
+        nailMesh.castShadow = false;
+        group.add(nailMesh);
+        const top = h / 2 - 0.015;
+        [-w * 0.3, w * 0.3].forEach((x) => {
+            const s = strut(_ropeGeo, wire, new THREE.Vector3(x, top, 0.008), nail, 0.55);
+            if (s) { s.castShadow = false; group.add(s); }
+        });
         return group;
     }
 
@@ -337,9 +364,17 @@ export function loadPanelTexture(url, onLoad) {
  */
 export function mountPainting(record, gardenGroup, canopies = null) {
     const anchor = resolveAnchor(gardenGroup, record.anchor);
-    const { group, panel, hitbox, width, height } = createPaintingMesh(
+    const { group: frame, panel, hitbox, width, height } = createPaintingMesh(
         record.widthIn, record.heightIn, record.frame
     );
+    frame.name = 'PaintingFrame';
+
+    // The outer group is the fixed mount: position, base orientation and
+    // scale from the saved record, never touched by billboarding. The canvas
+    // (`frame`, added below) rides inside it and is the only part that turns
+    // to face a viewer.
+    const group = new THREE.Group();
+    group.name = 'Painting';
     const rot = record.rotation || [0, 0, 0];
     group.position.fromArray(record.position || [0, 1.5, 0]);
     // YXZ, not Three's default XYZ: under XYZ the lean is applied before the
@@ -351,13 +386,18 @@ export function mountPainting(record, gardenGroup, canopies = null) {
     group.scale.setScalar(record.scale || 1);
     group.userData.placement = record;
     anchor.add(group);
+    group.add(frame);
 
-    // Easels and ropes ride inside the painting's own group, so they inherit
-    // its transform instead of needing their own copy of it kept in sync.
-    // groundDrop is measured in that (possibly tilted) frame: how far the
-    // centre is above the ground directly below it.
+    // Where the furniture rides depends on what it represents. An easel's
+    // ledge holds the canvas up from underneath -- if the canvas turned
+    // without it, it would visibly float off its own stand -- so it goes on
+    // `frame` and turns with it. A rope is tied to a real branch and a nail
+    // is driven into real bark: fixed points in the world that a turning
+    // canvas must not drag around with it, so those go on the outer `group`,
+    // which billboarding never rotates.
     const mount = normalizeMount(record.mount);
-    if (mount === 'easel' || mount === 'rope') {
+    const furnitureParent = (mount === 'rope' || mount === 'surface') ? group : frame;
+    if (mount === 'easel' || mount === 'rope' || mount === 'surface') {
         const scale = record.scale || 1;
         const groundY = groundHeightAt(group.position.x, group.position.z);
         let riseM = record.rise || 0.9;
@@ -376,7 +416,7 @@ export function mountPainting(record, gardenGroup, canopies = null) {
             mount, width, height, riseM / scale,
             Math.max((group.position.y - groundY) / scale, 0)
         );
-        if (furniture) group.add(furniture);
+        if (furniture) furnitureParent.add(furniture);
     }
 
     panel.material.map = placeholderTexture();
@@ -388,12 +428,12 @@ export function mountPainting(record, gardenGroup, canopies = null) {
         });
     }
 
-    // Billboard state. baseYaw is where the mount put it; the painting is only
-    // ever allowed to turn within its mount's limit of that.
-    group.userData.billboard = {
-        baseYaw: group.rotation.y,
-        yaw: group.rotation.y,
-        shadowYaw: group.rotation.y,
+    // Billboard state lives on `frame`: its rotation is a delta *on top of*
+    // the outer group's fixed base yaw (it starts at identity), not an
+    // absolute world angle -- see updatePaintingBillboards, which is the
+    // half of this that has to know that.
+    frame.userData.billboard = {
+        baseYaw: 0, yaw: 0, shadowYaw: 0,
         limit: BILLBOARD_LIMIT[mount] ?? BILLBOARD_LIMIT.surface
     };
 
@@ -417,18 +457,26 @@ export function mountPainting(record, gardenGroup, canopies = null) {
             const worldPos = new THREE.Vector3();
             const worldQuat = new THREE.Quaternion();
             const worldScale = new THREE.Vector3();
-            group.updateWorldMatrix(true, false);
-            group.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+            frame.updateWorldMatrix(true, false);
+            frame.matrixWorld.decompose(worldPos, worldQuat, worldScale);
             const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(worldQuat);
             // Its size on the wall, not on the drawing board: a painting hung
             // at 1.2x needs to be viewed from 1.2x as far back.
             const s = Math.max(worldScale.x, worldScale.y, 1e-3);
             const focusDist = Math.max(width, height) * s * 1.9 + 0.6;
-            return { pos: worldPos.clone().addScaledVector(facing, focusDist), lookAt: worldPos.clone() };
+            // The painting's actual on-wall height, for the caller to work
+            // out how close a dolly-zoom may go: close enough that this
+            // fills the screen top to bottom is the natural limit, not an
+            // arbitrary fraction of the initial framing distance.
+            return {
+                pos: worldPos.clone().addScaledVector(facing, focusDist),
+                lookAt: worldPos.clone(),
+                worldHeight: height * s
+            };
         }
     });
 
-    return { group, panel, hitbox, interactive: { object: hitbox, data: interactiveData } };
+    return { group, frame, panel, hitbox, interactive: { object: hitbox, data: interactiveData } };
 }
 
 /**
@@ -494,16 +542,18 @@ export function updatePaintingBillboards(mounted, camera, dt) {
     const ease = 1 - Math.exp(-BILLBOARD_RESPONSE * Math.min(dt, 0.1));
     let needsShadowRefresh = false;
 
-    for (const { group } of mounted.values()) {
-        const b = group.userData.billboard;
+    for (const { group, frame } of mounted.values()) {
+        const b = frame.userData.billboard;
         if (!b || b.frozen) continue;
-        // Where it would have to face to look straight at the viewer.
-        const facing = Math.atan2(cam.x - group.position.x, cam.z - group.position.z);
-        const target = b.baseYaw + THREE.MathUtils.clamp(
-            wrapAngle(facing - b.baseYaw), -b.limit, b.limit
-        );
+        // Where it would have to face to look straight at the viewer, in
+        // world terms (group.position is unaffected by billboarding, so this
+        // stays correct however far frame has already turned) -- then
+        // expressed relative to the mount's own fixed yaw, since frame's
+        // rotation is a delta on top of that, not an absolute world angle.
+        const worldFacing = Math.atan2(cam.x - group.position.x, cam.z - group.position.z);
+        const target = THREE.MathUtils.clamp(wrapAngle(worldFacing - group.rotation.y), -b.limit, b.limit);
         b.yaw += wrapAngle(target - b.yaw) * ease;
-        group.rotation.y = b.yaw;
+        frame.rotation.y = b.yaw;
         if (Math.abs(wrapAngle(b.yaw - b.shadowYaw)) > BILLBOARD_SHADOW_EPS) needsShadowRefresh = true;
     }
     return needsShadowRefresh;
@@ -518,16 +568,16 @@ export function updatePaintingBillboards(mounted, camera, dt) {
  */
 export function setBillboardFrozen(mounted, id) {
     if (!mounted) return;
-    for (const [key, { group }] of mounted) {
-        if (group.userData.billboard) group.userData.billboard.frozen = key === id;
+    for (const [key, { frame }] of mounted) {
+        if (frame.userData.billboard) frame.userData.billboard.frozen = key === id;
     }
 }
 
 /** Called on the frames that actually re-render the shadow map. */
 export function commitPaintingShadows(mounted) {
     if (!mounted) return;
-    for (const { group } of mounted.values()) {
-        if (group.userData.billboard) group.userData.billboard.shadowYaw = group.userData.billboard.yaw;
+    for (const { frame } of mounted.values()) {
+        if (frame.userData.billboard) frame.userData.billboard.shadowYaw = frame.userData.billboard.yaw;
     }
 }
 
