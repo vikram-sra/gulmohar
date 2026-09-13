@@ -1035,7 +1035,19 @@ class GulmoharApp {
         const m = this.paintings.get(f.id);
         if (!m) { this._setPaintingFocus(null); return; }
         const d = this.camera.position.distanceTo(m.group.position);
-        if (!f.armed) { if (d <= f.release) f.armed = true; return; }
+        if (!f.armed) {
+            if (d > f.release) return;
+            f.armed = true;
+            // The freeze exists only to survive the fly-in: cameraTarget is
+            // computed once, before the tween starts, so if the painting kept
+            // turning to chase the moving camera mid-flight it would arrive
+            // facing somewhere the shot was no longer framed for. Once the
+            // camera has actually landed, holding it frozen stops it doing
+            // the one thing "billboard" means -- from here on, orbiting
+            // around a zoomed-in painting should still turn it to face you.
+            setBillboardFrozen(this.paintings, null);
+            return;
+        }
         if (d > f.release) this._setPaintingFocus(null);
     }
 
