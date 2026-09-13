@@ -207,7 +207,9 @@ export async function attachPlaceMode(app, artworkId) {
 
     function apply(group, t) {
         group.position.copy(t.position);
-        group.rotation.copy(t.rotation);
+        // YXZ to match how mountPainting reads these back (see paintings.js):
+        // yaw first, then lean about the painting's own axis.
+        group.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z, 'YXZ');
         group.scale.setScalar(state.size);
     }
 

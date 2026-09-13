@@ -13,7 +13,7 @@ import { windUniforms } from './src/scene/wind.js';
 import { loadGarden, GARDEN_POINTS, groundHeightAt, POND_WATER_Y, POND_EXTENT } from './src/scene/garden.js';
 import { createGrassField } from './src/scene/grass.js';
 import { createLawn } from './src/scene/lawn.js';
-import { loadPlacements, mountAllPaintings } from './src/scene/paintings.js';
+import { loadPlacements, mountAllPaintings, updatePaintingBillboards, commitPaintingShadows, setBillboardFrozen } from './src/scene/paintings.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 import { FPSNavigator } from './src/controls/fpsNavigator.js';
@@ -83,6 +83,10 @@ const C_FLOOR_MIDNIGHT = new THREE.Color(0x28382c);   // deep twilight forest fl
 const AMBIENT_DAY_SPEED = 0.004;   // radians/sec of sun angle at rest (~4.5 min/day)
 const UI_HIDE_MS = 6000;
 const WALK_UI_HIDE_MS = 3200;
+// How close orbit mode lets you get to a landmark. Focusing a painting drops
+// it for the duration -- a canvas is viewed from about two metres, not six --
+// and anything that moves the focus elsewhere puts it back.
+const ORBIT_MIN_DISTANCE = 6.0;
 
 class GulmoharApp {
     constructor() {
@@ -223,7 +227,7 @@ class GulmoharApp {
         this.controls.target.set(0, 2.8, 0);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.minDistance = 6.0;
+        this.controls.minDistance = ORBIT_MIN_DISTANCE;
         this.controls.maxDistance = 58;
         this.controls.maxPolarAngle = Math.PI * 0.48;   // low upward glance, never below ground
         this.controls.autoRotate = false;               // released when the intro descent begins
@@ -892,6 +896,13 @@ class GulmoharApp {
             }
         }
 
+        // A painting under the cursor outranks any landmark it overlaps,
+        // however much nearer the landmark's hitbox happens to be: the
+        // cylinders are metres wide and every painting hung on a tree sits
+        // inside one, so by distance alone the tree always won and the
+        // painting could never be selected where it actually hangs.
+        candidates.sort((a, b) => (b.kind === 'painting') - (a.kind === 'painting'));
+
         // Clicking the same spot again steps to the next one behind, then
         // wraps. A click more than a few pixels away is a new selection and
         // starts from the front again.
@@ -930,6 +941,7 @@ class GulmoharApp {
             if (targetData && targetData.cameraTarget) {
                 // Landmark or painting fast travel at human eye height
                 const { pos, lookAt } = targetData.cameraTarget;
+                setBillboardFrozen(this.paintings, targetData.kind === 'painting' ? targetData.id : null);
                 this.fpsNavigator.fastTravelTo(pos.x, pos.z, lookAt, 1.3);
             } else if (hitPoint) {
                 // Clicked on ground, path, trees, or rocks - fast travel directly there!
@@ -943,6 +955,15 @@ class GulmoharApp {
 
         if (targetData && targetData.cameraTarget) {
             const { pos, lookAt } = targetData.cameraTarget;
+            // OrbitControls re-clamps the camera to minDistance on its next
+            // update, so tweening to a spot nearer than that is undone within
+            // a frame. A painting wants to be viewed from about two metres --
+            // well inside the 6m floor the landmarks need -- which is why
+            // clicking one used to stop short and leave it small on screen.
+            this.controls.minDistance = Math.min(ORBIT_MIN_DISTANCE, pos.distanceTo(lookAt) * 0.9);
+            // Hold the chosen painting at the angle this shot was framed from.
+            // Time of day and wind keep running -- only this one canvas stops.
+            setBillboardFrozen(this.paintings, targetData.kind === 'painting' ? targetData.id : null);
             gsap.killTweensOf(this.camera.position);
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, {
@@ -958,6 +979,8 @@ class GulmoharApp {
             this.setUIVisibility(true);
         } else if (hitPoint) {
             // In orbit mode, clicking any object fast-travels the orbit focus to that object
+            this.controls.minDistance = ORBIT_MIN_DISTANCE;
+            setBillboardFrozen(this.paintings, null);
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.controls.target, {
                 x: hitPoint.x, y: Math.max(1.0, hitPoint.y), z: hitPoint.z,
@@ -1059,6 +1082,8 @@ class GulmoharApp {
         gsap.killTweensOf(this.controls.target);
 
         this.controls.enabled = true;
+        this.controls.minDistance = ORBIT_MIN_DISTANCE;   // a painting may have lowered it
+        setBillboardFrozen(this.paintings, null);
         this.camera.fov = this._fovForAspect(window.innerWidth / window.innerHeight);
         this.camera.updateProjectionMatrix();
 
@@ -1540,11 +1565,16 @@ class GulmoharApp {
         // the editor placing a painting -- sets needsUpdate directly, and Three
         // clears the flag itself after rendering.
         const sunMoved = Math.abs(this.sunAngle - (this._lastShadowAngle ?? 1e9)) > 1e-5;
-        const shadowFrame = (shadowDue && sunMoved) || castingKey !== this._lastCastingKey;
+        // A painting that has swung to follow the viewer is the other thing
+        // that can invalidate the map while the sun sits still.
+        const shadowFrame = (shadowDue && (sunMoved || this._paintingsTurned))
+            || castingKey !== this._lastCastingKey;
         if (shadowFrame) {
             this._lastShadowMs = nowMs;
             this._lastShadowAngle = this.sunAngle;
             this._lastCastingKey = castingKey;
+            this._paintingsTurned = false;
+            commitPaintingShadows(this.paintings);
             this.renderer.shadowMap.needsUpdate = true;
         }
 
@@ -1649,6 +1679,12 @@ class GulmoharApp {
         if (this.lawn) {
             this.camera.updateMatrixWorld();
             this.lawn.update(this.camera);
+        }
+        // Also after the camera has moved, for the same reason. The shadow
+        // gate runs earlier in the frame, so the flag is read on the next one
+        // -- a frame's latency on a shadow refresh nobody can see.
+        if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
+            this._paintingsTurned = true;
         }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from

@@ -51,6 +51,29 @@ export function normalizeMount(mount) {
     return LEGACY_MOUNTS[mount] || 'surface';
 }
 
+// Paintings turn to face whoever is looking at them, but only as far as the
+// thing holding them up allows. A canvas on ropes can swing to face you
+// outright; an easel can be walked round a bit; a painting flat on bark can
+// only drift, or it would rotate off the trunk it is nailed to.
+const BILLBOARD_LIMIT = {
+    rope: Math.PI,
+    easel: THREE.MathUtils.degToRad(50),
+    ground: THREE.MathUtils.degToRad(50),
+    surface: THREE.MathUtils.degToRad(20)
+};
+// How fast a painting settles toward facing you. Exponential, so it is
+// frame-rate independent and never overshoots.
+const BILLBOARD_RESPONSE = 3.5;
+// Yaw a painting must have turned since the shadow map was last rendered
+// before it is worth re-rendering it. Below about a degree the shadow's
+// shape does not visibly disagree with the frame casting it.
+const BILLBOARD_SHADOW_EPS = THREE.MathUtils.degToRad(1.2);
+
+/** Shortest signed angle from `a` to `b`, in (-pi, pi]. */
+function wrapAngle(d) {
+    return Math.atan2(Math.sin(d), Math.cos(d));
+}
+
 const EASEL_WOOD = 0x8a6c4a;
 const ROPE_COLOR = 0xbfa980;
 
@@ -261,8 +284,14 @@ export function mountPainting(record, gardenGroup) {
     const { group, panel, hitbox, width, height } = createPaintingMesh(
         record.widthIn, record.heightIn, record.frame
     );
+    const rot = record.rotation || [0, 0, 0];
     group.position.fromArray(record.position || [0, 1.5, 0]);
-    group.rotation.fromArray(record.rotation || [0, 0, 0]);
+    // YXZ, not Three's default XYZ: under XYZ the lean is applied before the
+    // yaw, so a painting's "back" tips toward world north no matter which way
+    // it faces. Fine while every angle is authored once and eyeballed; wrong
+    // the moment a painting turns, when the lean would visibly roll into a
+    // tilt. YXZ yaws first and then leans about the painting's own axis.
+    group.rotation.set(rot[0] || 0, rot[1] || 0, rot[2] || 0, 'YXZ');
     group.scale.setScalar(record.scale || 1);
     group.userData.placement = record;
     anchor.add(group);
@@ -291,22 +320,45 @@ export function mountPainting(record, gardenGroup) {
         });
     }
 
-    // Camera frames the work square-on, from directly in front, at a
-    // distance that fits whichever axis (width or height) needs more room.
-    const worldPos = new THREE.Vector3();
-    group.getWorldPosition(worldPos);
-    const worldQuat = new THREE.Quaternion();
-    group.getWorldQuaternion(worldQuat);
-    const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(worldQuat);
-    const focusDist = Math.max(width, height) * 1.9 + 0.6;
-    const camPos = worldPos.clone().addScaledVector(facing, focusDist);
+    // Billboard state. baseYaw is where the mount put it; the painting is only
+    // ever allowed to turn within its mount's limit of that.
+    group.userData.billboard = {
+        baseYaw: group.rotation.y,
+        yaw: group.rotation.y,
+        shadowYaw: group.rotation.y,
+        limit: BILLBOARD_LIMIT[mount] ?? BILLBOARD_LIMIT.surface
+    };
 
     const interactiveData = {
         id: record.id,
+        // A painting is a small, deliberately aimed-at target; a landmark's
+        // hitbox is a generous cylinder metres wide. Where the two overlap --
+        // and every painting hung on a tree overlaps one -- the painting has
+        // to win, or it is unclickable wherever it actually hangs.
+        kind: 'painting',
         title: record.title || 'Untitled',
-        meta: [record.medium, record.year].filter(Boolean).join(' · '),
-        cameraTarget: { pos: camPos, lookAt: worldPos.clone() }
+        meta: [record.medium, record.year].filter(Boolean).join(' · ')
     };
+
+    // Computed on read, not once at mount: a painting that billboards has
+    // turned since it was hung, and framing it against the angle it *used* to
+    // face puts the camera off to one side of its own artwork.
+    Object.defineProperty(interactiveData, 'cameraTarget', {
+        enumerable: true,
+        get() {
+            const worldPos = new THREE.Vector3();
+            const worldQuat = new THREE.Quaternion();
+            const worldScale = new THREE.Vector3();
+            group.updateWorldMatrix(true, false);
+            group.matrixWorld.decompose(worldPos, worldQuat, worldScale);
+            const facing = new THREE.Vector3(0, 0, 1).applyQuaternion(worldQuat);
+            // Its size on the wall, not on the drawing board: a painting hung
+            // at 1.2x needs to be viewed from 1.2x as far back.
+            const s = Math.max(worldScale.x, worldScale.y, 1e-3);
+            const focusDist = Math.max(width, height) * s * 1.9 + 0.6;
+            return { pos: worldPos.clone().addScaledVector(facing, focusDist), lookAt: worldPos.clone() };
+        }
+    });
 
     return { group, panel, hitbox, interactive: { object: hitbox, data: interactiveData } };
 }
@@ -358,6 +410,59 @@ export async function loadPlacements() {
  * registry. Returns the mounted records (group + panel per id) so the
  * editor can find and manipulate them later without re-mounting.
  */
+/**
+ * Turns each painting toward the viewer, within whatever its mount allows.
+ *
+ * @returns {boolean} true when something has turned far enough since the
+ *   shadow map was last rendered to be worth re-rendering it. Shadows here
+ *   are cached and refreshed on a cadence gated on the sun having moved (see
+ *   main.js), so without this a painting would swing while its shadow stayed
+ *   put -- most obviously with the day paused, when the sun never moves and
+ *   the shadow map would never refresh at all.
+ */
+export function updatePaintingBillboards(mounted, camera, dt) {
+    if (!mounted || !mounted.size) return false;
+    const cam = camera.position;
+    const ease = 1 - Math.exp(-BILLBOARD_RESPONSE * Math.min(dt, 0.1));
+    let needsShadowRefresh = false;
+
+    for (const { group } of mounted.values()) {
+        const b = group.userData.billboard;
+        if (!b || b.frozen) continue;
+        // Where it would have to face to look straight at the viewer.
+        const facing = Math.atan2(cam.x - group.position.x, cam.z - group.position.z);
+        const target = b.baseYaw + THREE.MathUtils.clamp(
+            wrapAngle(facing - b.baseYaw), -b.limit, b.limit
+        );
+        b.yaw += wrapAngle(target - b.yaw) * ease;
+        group.rotation.y = b.yaw;
+        if (Math.abs(wrapAngle(b.yaw - b.shadowYaw)) > BILLBOARD_SHADOW_EPS) needsShadowRefresh = true;
+    }
+    return needsShadowRefresh;
+}
+
+/**
+ * Holds one painting still while the camera flies in to look at it, and
+ * releases every other. The framing is computed from the angle it is facing
+ * at the moment of the click, so a painting that kept turning as the camera
+ * swung round would slide out of the shot it was being given -- and a canvas
+ * you are standing in front of studying should be still.
+ */
+export function setBillboardFrozen(mounted, id) {
+    if (!mounted) return;
+    for (const [key, { group }] of mounted) {
+        if (group.userData.billboard) group.userData.billboard.frozen = key === id;
+    }
+}
+
+/** Called on the frames that actually re-render the shadow map. */
+export function commitPaintingShadows(mounted) {
+    if (!mounted) return;
+    for (const { group } of mounted.values()) {
+        if (group.userData.billboard) group.userData.billboard.shadowYaw = group.userData.billboard.yaw;
+    }
+}
+
 export function mountAllPaintings(gardenGroup, placements, registerHover) {
     const mounted = new Map();
     placements.forEach((record) => {
