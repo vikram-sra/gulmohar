@@ -33,7 +33,13 @@ const BLADE_HEIGHT_M = 0.20;          // median blade: lawn, not meadow; the tuf
 // triangles in the landing view at the top tier and ~110k at the low tier
 // (the old card lawn's low-tier cost), and it still reads as full grass
 // because the blades are long.
-const MAX_DENSITY = 0.09;
+const MAX_DENSITY = 0.115;
+// How far the blade roots are pushed below the ground they are planted on.
+// Grass grows out of a mat of older growth, not off a clean surface -- with
+// the roots sitting exactly on the ground you see the bottom of every blade
+// and it reads as loose bristles standing on soil. Burying them hides the
+// ends and the tufts close over into turf.
+const BLADE_SINK_M = 0.05;
 const LOD_FRACTIONS = [1, 1 / 2, 1 / 4, 1 / 8, 1 / 16, 1 / 32].map((f) => f * MAX_DENSITY);
 const MASK_SIZE_M = 100;              // the mask spans the whole ground plane
 const MASK_RES = 400;                 // 25cm texels
@@ -177,6 +183,7 @@ function injectLawnShader(material, uniforms) {
             uWindStrength: windUniforms.uWindStrength
         });
         shader.vertexShader = `
+#define BLADE_SINK ${BLADE_SINK_M.toFixed(4)}
 attribute vec4 aBlade;
 attribute float aBladeH;
 attribute vec3 aTileTint;
@@ -223,7 +230,7 @@ varying vec3 vTileTint;
     // wanted in world metres but applied before instanceMatrix, which scales
     // each tuft, so it is divided back out.
     transformed = aBlade.xyz + (transformed - aBlade.xyz) * grow;
-    transformed.y += (mask.r - rootW.y - 0.015) / length(instanceMatrix[1].xyz);
+    transformed.y += (mask.r - rootW.y - BLADE_SINK) / length(instanceMatrix[1].xyz);
 
     // Wind: root pinned, tip carries the motion; shares the trees' gusts.
     vec2 windDir = normalize(vec2(0.82, 0.57));
@@ -281,7 +288,7 @@ export function createLawn(gltf, { radius = 41, density = 1 } = {}) {
         uLawnMask: { value: mask },
         uLawnMaskXform: { value: new THREE.Vector3(-MASK_SIZE_M / 2, -MASK_SIZE_M / 2, 1 / MASK_SIZE_M) },
         uLawnCam: { value: new THREE.Vector3() },
-        uLawnFade: { value: new THREE.Vector4(4, 26, 0.08, MAX_DENSITY * density) }
+        uLawnFade: { value: new THREE.Vector4(4, 26, 0.11, MAX_DENSITY * density) }
     };
 
     // A plain matte material, not the loaded one: the asset is spec-gloss,

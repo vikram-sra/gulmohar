@@ -51,7 +51,7 @@ const found = FIREBASE_MARKERS.filter((m) => src.includes(m));
 // deliberately in the same commit as whatever earns the extra size, with a
 // one-line note of why, rather than letting this check silently ratchet up
 // forever unnoticed.
-const BASELINE_KB = 876; // measured after the gallery.json cloud loader landed in paintings.js
+const BASELINE_KB = 880; // raised for painting billboarding + focus release (b2caf8d) -- real, measured growth
 const BUDGET_KB = BASELINE_KB + 3;
 
 let failed = false;

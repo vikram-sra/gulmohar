@@ -941,7 +941,7 @@ class GulmoharApp {
             if (targetData && targetData.cameraTarget) {
                 // Landmark or painting fast travel at human eye height
                 const { pos, lookAt } = targetData.cameraTarget;
-                setBillboardFrozen(this.paintings, targetData.kind === 'painting' ? targetData.id : null);
+                this._setPaintingFocus(targetData.kind === 'painting' ? targetData.id : null, pos.distanceTo(lookAt));
                 this.fpsNavigator.fastTravelTo(pos.x, pos.z, lookAt, 1.3);
             } else if (hitPoint) {
                 // Clicked on ground, path, trees, or rocks - fast travel directly there!
@@ -963,7 +963,7 @@ class GulmoharApp {
             this.controls.minDistance = Math.min(ORBIT_MIN_DISTANCE, pos.distanceTo(lookAt) * 0.9);
             // Hold the chosen painting at the angle this shot was framed from.
             // Time of day and wind keep running -- only this one canvas stops.
-            setBillboardFrozen(this.paintings, targetData.kind === 'painting' ? targetData.id : null);
+            this._setPaintingFocus(targetData.kind === 'painting' ? targetData.id : null, pos.distanceTo(lookAt));
             gsap.killTweensOf(this.camera.position);
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, {
@@ -980,7 +980,7 @@ class GulmoharApp {
         } else if (hitPoint) {
             // In orbit mode, clicking any object fast-travels the orbit focus to that object
             this.controls.minDistance = ORBIT_MIN_DISTANCE;
-            setBillboardFrozen(this.paintings, null);
+            this._setPaintingFocus(null);
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.controls.target, {
                 x: hitPoint.x, y: Math.max(1.0, hitPoint.y), z: hitPoint.z,
@@ -991,6 +991,33 @@ class GulmoharApp {
         } else {
             this.setUIVisibility(true);
         }
+    }
+
+    /**
+     * Holds one painting still while you are looking at it, and lets go when
+     * you leave. Without the release it stayed frozen for the rest of the
+     * session: click one painting and it never turned to face you again.
+     */
+    _setPaintingFocus(id, focusDist = 0) {
+        setBillboardFrozen(this.paintings, id);
+        // Letting go of a painting also gives the orbit floor back, or you
+        // would keep a canvas's 1.5m dolly limit for the rest of the session
+        // and be able to push the camera inside the landmarks.
+        if (!id) this.controls.minDistance = ORBIT_MIN_DISTANCE;
+        // `armed` guards the approach. The focus tween starts far outside the
+        // release radius, so releasing on distance alone would let go on the
+        // first frame; it arms only once the camera has actually arrived.
+        this._paintingFocus = id ? { id, release: focusDist * 1.8 + 1.0, armed: false } : null;
+    }
+
+    _updatePaintingFocus() {
+        const f = this._paintingFocus;
+        if (!f || !this.paintings) return;
+        const m = this.paintings.get(f.id);
+        if (!m) { this._setPaintingFocus(null); return; }
+        const d = this.camera.position.distanceTo(m.group.position);
+        if (!f.armed) { if (d <= f.release) f.armed = true; return; }
+        if (d > f.release) this._setPaintingFocus(null);
     }
 
     // -- camera -------------------------------------------------------------
@@ -1083,7 +1110,7 @@ class GulmoharApp {
 
         this.controls.enabled = true;
         this.controls.minDistance = ORBIT_MIN_DISTANCE;   // a painting may have lowered it
-        setBillboardFrozen(this.paintings, null);
+        this._setPaintingFocus(null);
         this.camera.fov = this._fovForAspect(window.innerWidth / window.innerHeight);
         this.camera.updateProjectionMatrix();
 
@@ -1683,6 +1710,7 @@ class GulmoharApp {
         // Also after the camera has moved, for the same reason. The shadow
         // gate runs earlier in the frame, so the flag is read on the next one
         // -- a frame's latency on a shadow refresh nobody can see.
+        this._updatePaintingFocus();
         if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
             this._paintingsTurned = true;
         }
