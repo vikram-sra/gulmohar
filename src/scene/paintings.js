@@ -8,6 +8,11 @@ import { galleryUrl } from '../cloud/config.js';
 import { toPlacementRecord } from '../cloud/schema.js';
 import { QUALITY } from '../quality.js';
 import { groundHeightAt } from './garden.js';
+// The canopy-extent half of place/surfaces.js -- SDK-free, and the visitor
+// bundle already pays to load the trees themselves, so reusing their fitted
+// bounds for the rope mount's real branch height costs one more bounding-box
+// scan at mount time, not a second copy of the geometry.
+import { fitCanopies, canopyOver } from '../place/surfaces.js';
 
 // ---------------------------------------------------------------------------
 // Paintings hung in the garden -- the read-only half. The editor
@@ -105,6 +110,24 @@ function ropeMaterial() {
     return ropeMaterial._m;
 }
 
+// A small brass hook at the knot -- metal and a touch of emissive together,
+// so it catches actual sun as a specular glint when the light is right, and
+// still reads as a warm point from a distance the rest of the time, when
+// this garden's low environment intensity (0.13, see main.js) would leave a
+// plain metal a dull grey. The point of it: from across the lawn, a bright
+// fleck under a tree is "something is hung there" before the canvas itself
+// is legible at all.
+const _hookGeo = new THREE.SphereGeometry(0.024, 8, 6);
+function hookMaterial() {
+    if (!hookMaterial._m) {
+        hookMaterial._m = new THREE.MeshStandardMaterial({
+            color: 0xd9b06a, roughness: 0.22, metalness: 1.0,
+            emissive: 0xd9a35a, emissiveIntensity: 0.5
+        });
+    }
+    return hookMaterial._m;
+}
+
 /** A leg/rope as a scaled unit cylinder from `a` to `b` (both local). */
 function strut(geo, material, a, b, radiusScale = 1) {
     const mesh = new THREE.Mesh(geo, material);
@@ -131,6 +154,33 @@ function strut(geo, material, a, b, radiusScale = 1) {
  * @param {number} groundDrop distance from the painting's centre down to the
  *                            ground, in the group's own (tilted) frame
  */
+// How long a rope tied to a nearby, actually-reachable branch would be --
+// not "the tallest point anywhere in the tree". A gulmohar's crown is ~20m
+// across and its bounding box only records the single highest leaf in the
+// whole canopy; treating that apex as "the branch above this point" sent an
+// 8m rope straight up out of a painting standing near the trunk. This is the
+// length used whenever there is room for it; near the crown's own edge,
+// where there isn't, it shortens to whatever headroom is actually there
+// rather than poking through the leaves.
+const ROPE_TARGET_RISE_M = 0.9;
+// Clearance kept below the canopy's highest recorded point, so the knot
+// sits under real leaf cover rather than exactly level with the topmost one.
+const ROPE_CANOPY_MARGIN_M = 0.9;
+const ROPE_RISE_MIN_M = 0.15;
+
+/**
+ * The rope length that reaches into real canopy overhead, or null when
+ * there is none above this point at all (which reads as the frame having
+ * been dragged out from under its tree, or `canopies` not being available).
+ */
+function ropeReach(canopies, x, z, frameTopWorldY) {
+    const c = canopyOver(canopies, x, z);
+    if (!c) return null;
+    const available = (c.top - ROPE_CANOPY_MARGIN_M) - frameTopWorldY;
+    if (available <= ROPE_RISE_MIN_M) return null;
+    return Math.min(ROPE_TARGET_RISE_M, available);
+}
+
 export function createMountFurniture(mount, w, h, rise, groundDrop) {
     const group = new THREE.Group();
     group.name = 'PaintingMount';
@@ -170,6 +220,10 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
             const s = strut(_ropeGeo, rope, new THREE.Vector3(x, top, 0), knot);
             if (s) { s.castShadow = false; group.add(s); }
         });
+        const hook = new THREE.Mesh(_hookGeo, hookMaterial());
+        hook.position.copy(knot);
+        hook.castShadow = false;
+        group.add(hook);
         return group;
     }
 
@@ -281,7 +335,7 @@ export function loadPanelTexture(url, onLoad) {
  * `_registerHover`/`onClick` in main.js already expects, so paintings share
  * the exact hover/click/focus machinery the four landmarks use.
  */
-export function mountPainting(record, gardenGroup) {
+export function mountPainting(record, gardenGroup, canopies = null) {
     const anchor = resolveAnchor(gardenGroup, record.anchor);
     const { group, panel, hitbox, width, height } = createPaintingMesh(
         record.widthIn, record.heightIn, record.frame
@@ -306,8 +360,20 @@ export function mountPainting(record, gardenGroup) {
     if (mount === 'easel' || mount === 'rope') {
         const scale = record.scale || 1;
         const groundY = groundHeightAt(group.position.x, group.position.z);
+        let riseM = record.rise || 0.9;
+        if (mount === 'rope' && canopies) {
+            // Reach for the real canopy rather than trusting the saved rise
+            // blindly: a tree that has grown, been re-scaled, or simply
+            // wasn't what the placement was authored against would otherwise
+            // leave the rope ending in mid-air, or poking out through the
+            // leaves. Ungrounded (no canopy overhead) falls back to whatever
+            // was saved.
+            const reach = ropeReach(canopies, group.position.x, group.position.z,
+                group.position.y + (height * scale) / 2);
+            if (reach !== null) riseM = reach;
+        }
         const furniture = createMountFurniture(
-            mount, width, height, (record.rise || 0) / scale,
+            mount, width, height, riseM / scale,
             Math.max((group.position.y - groundY) / scale, 0)
         );
         if (furniture) group.add(furniture);
@@ -466,9 +532,13 @@ export function commitPaintingShadows(mounted) {
 }
 
 export function mountAllPaintings(gardenGroup, placements, registerHover) {
+    // Computed once per load, not once per painting: a bounding-box scan per
+    // tree, shared by every rope mount rather than redone for each one.
+    const canopies = placements.some((r) => normalizeMount(r.mount) === 'rope')
+        ? fitCanopies(gardenGroup) : null;
     const mounted = new Map();
     placements.forEach((record) => {
-        const m = mountPainting(record, gardenGroup);
+        const m = mountPainting(record, gardenGroup, canopies);
         mounted.set(record.id, m);
         if (registerHover) registerHover(m.interactive.object, m.interactive.data);
     });

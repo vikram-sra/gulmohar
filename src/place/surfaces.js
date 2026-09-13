@@ -42,34 +42,44 @@ const TREE_NAMES = ['GulmoharTree', 'banyan_0', 'mango_1'];
  *   slab) simply isn't in the lists, which degrades to "you can't hang on that
  *   one" rather than to a proxy floating in the wrong place.
  */
-export function fitSurfaces(gardenGroup) {
+/**
+ * Just the canopy extents -- a bounding box per tree, no per-vertex trunk
+ * scan. Cheap enough to run on every visitor's mount pass (paintings.js
+ * calls this for the rope mount's real branch height), not just placement
+ * mode's own aiming setup.
+ */
+export function fitCanopies(gardenGroup) {
     gardenGroup.updateMatrixWorld(true);
-    const trunks = [];
     const canopies = [];
-
     for (const name of TREE_NAMES) {
         const holder = gardenGroup.getObjectByName(name);
         if (!holder) continue;
-
         const centre = new THREE.Vector3();
         holder.getWorldPosition(centre);
-        const ground = groundHeightAt(centre.x, centre.z);
-
         const box = new THREE.Box3().setFromObject(holder);
         if (box.isEmpty()) continue;
         const halfX = (box.max.x - box.min.x) / 2;
         const halfZ = (box.max.z - box.min.z) / 2;
         canopies.push({
-            name,
-            x: centre.x,
-            z: centre.z,
+            name, x: centre.x, z: centre.z,
             radius: Math.min(halfX, halfZ) * CANOPY_FRACTION,
             top: box.max.y
         });
+    }
+    return canopies;
+}
 
-        const radius = fitTrunkRadius(holder, centre, ground);
+export function fitSurfaces(gardenGroup) {
+    gardenGroup.updateMatrixWorld(true);
+    const canopies = fitCanopies(gardenGroup);
+    const trunks = [];
+    for (const c of canopies) {
+        const holder = gardenGroup.getObjectByName(c.name);
+        if (!holder) continue;
+        const ground = groundHeightAt(c.x, c.z);
+        const radius = fitTrunkRadius(holder, new THREE.Vector3(c.x, 0, c.z), ground);
         if (radius > 0) {
-            trunks.push({ name, x: centre.x, z: centre.z, radius, base: ground, top: ground + SLAB_HIGH + 1.2 });
+            trunks.push({ name: c.name, x: c.x, z: c.z, radius, base: ground, top: ground + SLAB_HIGH + 1.2 });
         }
     }
     return { trunks, canopies };
