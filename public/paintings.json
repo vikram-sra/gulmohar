@@ -97,6 +97,53 @@
       "startHere": true
     },
     {
+      "id": "banyan-nail",
+      "file": "portfolio/last-light.svg",
+      "widthIn": 18,
+      "heightIn": 24,
+      "title": "Aerial Roots",
+      "year": 2025,
+      "medium": "Charcoal on paper",
+      "frame": "ebony",
+      "anchor": "world",
+      "mount": "surface",
+      "position": [
+        -27.624,
+        1.7,
+        14.245
+      ],
+      "rotation": [
+        0,
+        2.753,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "banyan-rope",
+      "file": "portfolio/pond-study.svg",
+      "widthIn": 20,
+      "heightIn": 26,
+      "title": "Under the Banyan",
+      "year": 2026,
+      "medium": "Gouache on board",
+      "frame": "pale-wood",
+      "anchor": "world",
+      "mount": "rope",
+      "position": [
+        -23.23,
+        2.4,
+        17.26
+      ],
+      "rotation": [
+        0,
+        2.209,
+        0
+      ],
+      "rise": 1.33,
+      "scale": 1
+    },
+    {
       "id": "chrome-glint",
       "file": "portfolio/canopy.svg",
       "widthIn": 16,

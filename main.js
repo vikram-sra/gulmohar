@@ -978,17 +978,6 @@ class GulmoharApp {
         // fall back to the landmarks' actual geometry before giving up.
         if (!targetData) targetData = this._pickByGeometry();
 
-        // Find click hit point across garden or ground for fast travel
-        let hitPoint = hits.length ? hits[0].point.clone() : null;
-        if (!hitPoint && this.garden && this.garden.group) {
-            const gHits = this.raycaster.intersectObject(this.garden.group, true);
-            if (gHits.length) hitPoint = gHits[0].point.clone();
-        }
-        if (!hitPoint && this.groundMesh) {
-            const grHits = this.raycaster.intersectObject(this.groundMesh, false);
-            if (grHits.length) hitPoint = grHits[0].point.clone();
-        }
-
         // A painting behaves identically wherever it was clicked from -- the
         // same framed, dolly-zoomable, billboard-tracking focus onClick
         // already gives it in orbit mode, not the FPS fast-travel-and-stare
@@ -1051,18 +1040,15 @@ class GulmoharApp {
                 ease: 'power2.inOut'
             });
             this.setUIVisibility(true);
-        } else if (hitPoint) {
-            // In orbit mode, clicking any object fast-travels the orbit focus to that object
-            this.controls.minDistance = ORBIT_MIN_DISTANCE;
-            this._setPaintingFocus(null);
-            gsap.killTweensOf(this.controls.target);
-            gsap.to(this.controls.target, {
-                x: hitPoint.x, y: Math.max(1.0, hitPoint.y), z: hitPoint.z,
-                duration: 1.4,
-                ease: 'power2.inOut'
-            });
-            this.toggleUIVisibility();
         } else {
+            // Nothing nameable under the cursor. This used to raycast the
+            // whole garden and the ground, then slide the orbit pivot to
+            // whatever it found -- which is almost every click, since grass
+            // covers the screen. Moving the pivot without moving the camera
+            // re-frames the whole shot: the garden appears to swing and pull
+            // back on its own, from a click the visitor meant as nothing more
+            // than "put the dock away". A click on empty space now does only
+            // that, and leaves the camera exactly where it was.
             this.toggleUIVisibility();
         }
     }
@@ -1439,7 +1425,21 @@ class GulmoharApp {
             // dock's 14px -- at that size a real canopy silhouette with a
             // forked trunk reads properly, where at 14px it collapsed into a
             // smudge and had to be flattened into bare triangles.
-            home: `<svg viewBox="0 0 24 24"><path d="M8.4 12.6a3.5 3.5 0 0 1-1.2-6.5 3.8 3.8 0 0 1 3.4-3.4 3.9 3.9 0 0 1 3 1 3.9 3.9 0 0 1 3.1-1 3.8 3.8 0 0 1 3.3 3.4 3.5 3.5 0 0 1-1.2 6.5"/><path d="M8.4 12.6a3.3 3.3 0 0 0 3.2-1.2"/><path d="M18.8 12.6a3.3 3.3 0 0 1-3.2-1.2"/><path d="M12 21.4v-6.8"/><path d="M12 16.8 9.4 14.4"/><path d="M12 18.4l2.5-2.3"/></svg>`,
+            // A gulmohar in silhouette: broad, flat-topped, wider than it is
+            // tall. Built from overlapping filled circles rather than one
+            // traced outline -- they merge into a single lobed crown that
+            // survives being scaled down to an orb, which a hand-tuned path
+            // at this size does not.
+            // A gulmohar in silhouette. The crown is built from two rows of
+            // overlapping filled circles -- a wide flat lower band and a
+            // shorter upper one -- which merge into the species' actual
+            // shape: a broad, flat-topped umbrella far wider than it is tall.
+            // Circles rather than one traced outline because a hand-tuned
+            // path this size falls apart when the orb scales it down.
+            // Deliberately no angled limbs below the crown: drawn solid, a
+            // trunk with two down-swept branches resolves into an arrowhead,
+            // and the whole icon reads as a download button.
+            home: `<svg viewBox="0 0 24 24" class="solid-icon"><circle cx="5.4" cy="10.1" r="3.1"/><circle cx="8.7" cy="10.6" r="3.2"/><circle cx="12" cy="10.7" r="3.3"/><circle cx="15.3" cy="10.6" r="3.2"/><circle cx="18.6" cy="10.1" r="3.1"/><circle cx="8.6" cy="7.5" r="2.9"/><circle cx="12" cy="6.9" r="3.1"/><circle cx="15.4" cy="7.5" r="2.9"/><path d="M11.3 21.3V11.5h1.4v9.8z"/><path d="M9.2 21.9q1.5-1 2.8-1.1 1.3.1 2.8 1.1z"/></svg>`,
             day: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 1v1.5M12 21.5V23M1 12h1.5M21.5 12H23"/></svg>`,
             night: `<svg viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`,
             pause: `<svg viewBox="0 0 24 24"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>`,
@@ -1455,7 +1455,10 @@ class GulmoharApp {
             // can swing them (see index.html) -- a pedestrian signal that is
             // always mid-stride, rather than a figure standing still on a
             // button labelled "walk".
-            walk: `<svg viewBox="0 0 24 24"><g class="walk-fig"><circle cx="12" cy="4" r="1.8"/><path d="M12 6.5 11 13"/><path class="leg-a" d="M11 13 13.5 16 12.5 20"/><path class="leg-b" d="M11 13 8.5 15.5 9.5 20"/><path class="arm-a" d="M12 6.5 9 9 9.8 12.5"/><path class="arm-b" d="M12 6.5 14.5 9.5 13.8 13"/></g></svg>`,
+            // The crossing-signal pedestrian: solid head, thick round-capped
+            // limbs, leaning into the stride. Arms and legs swing in
+            // opposition, so it is always mid-walk.
+            walk: `<svg viewBox="0 0 24 24" class="solid-icon walk-icon"><g class="walk-fig"><circle cx="12.5" cy="3.8" r="2.3"/><path d="M12.3 6.6 11.4 13.2"/><path class="leg-a" d="M11.4 13.2 14.3 16.3 13.7 20.7"/><path class="leg-b" d="M11.4 13.2 8.7 16.5 8.1 20.7"/><path class="arm-a" d="M12.1 7.4 9.2 10.1 9.9 13.6"/><path class="arm-b" d="M12.1 7.4 14.8 9.9 14.1 13.4"/></g></svg>`,
             instagram: `<svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>`
         };
         this._motionIcons = { pause: icons.pause, play: icons.play };

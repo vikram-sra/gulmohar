@@ -159,21 +159,35 @@
       transition: opacity 0.22s ease, transform 0.22s ease;
     }
     #hover-label.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
-    /* Both lines carry the halo, and carry it twice. One soft shadow is
-       enough over sky or a flat wall, but this label sits over grass and
-       bark -- high-frequency, mid-tone, and the same luminance as the text
-       often enough that a single halo left the smaller line unreadable.
-       The tight inner copy holds the glyph edges, the wide outer one lifts
-       the whole line off whatever is behind it. */
+    /* This label used to rely on stacked text-shadow halos alone. That works
+       over sky or a flat wall, but the label's home is over lawn: grass is
+       high-frequency and lands in the same mid-tone luminance band as the
+       ink, so a halo drawn per glyph gets chopped up by the blades behind it
+       and never resolves into a readable ground. No amount of extra shadow
+       fixes that -- it needs an actual plate. It gets the dock's own glass,
+       which both guarantees the contrast and makes the label read as part of
+       the same HUD rather than text floating loose on the scene. The halos
+       stay on top of it, now doing the small job they are good at. */
+    #hover-label .hl-plate {
+      display: inline-block;
+      padding: 7px 16px 8px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
+      backdrop-filter: blur(22px) saturate(170%) brightness(1.03);
+      -webkit-backdrop-filter: blur(22px) saturate(170%) brightness(1.03);
+      border: 0.5px solid var(--hud-border);
+      box-shadow: var(--hud-shadow);
+      max-width: min(78vw, 30rem);
+    }
     #hover-label .hl-title {
       display: block; color: var(--hud-ink-strong); font-size: 0.95rem; font-weight: 400;
       letter-spacing: 0.14rem;
-      text-shadow: var(--hud-halo), var(--hud-halo), 0 0 3px var(--hud-halo-tight);
+      text-shadow: 0 0 3px var(--hud-halo-tight);
     }
     #hover-label .hl-meta {
       display: block; color: var(--hud-ink-strong); font-size: 0.72rem;
-      letter-spacing: 0.14rem; margin-top: 3px; opacity: 0.86;
-      text-shadow: var(--hud-halo), var(--hud-halo), 0 0 3px var(--hud-halo-tight);
+      letter-spacing: 0.14rem; margin-top: 3px; opacity: 0.9;
+      text-shadow: 0 0 3px var(--hud-halo-tight);
     }
 
     /* --- dock -------------------------------------------------------------
@@ -313,22 +327,36 @@
       50%      { box-shadow: var(--hud-shadow), 0 0 30px 5px var(--orb-glow); }
     }
 
+    /* --- solid icons -------------------------------------------------------
+       The dock's default icon style is a 1.35px outline, which is right for
+       geometric glyphs (a square, a circle, a crescent) and wrong for
+       anything organic: a stroked tree and a stroked stick figure both
+       collapse into scribble at 14px. Signage solves this the same way road
+       signs do -- one filled silhouette, no interior detail -- so the tree
+       and the pedestrian opt into fill instead. */
+    .glass-btn svg.solid-icon, #home-orb svg.solid-icon { fill: currentColor; stroke: none; }
+    /* The pedestrian is the hybrid the real signal is: a filled head and
+       torso mass, with limbs as thick round-capped strokes that can swing. */
+    .glass-btn svg.walk-icon path, #home-orb svg.walk-icon path {
+      fill: none; stroke: currentColor; stroke-width: 2.6;
+      stroke-linecap: round; stroke-linejoin: round;
+    }
+
     /* --- animated walk figure ---------------------------------------------
        A pedestrian-crossing signal, always walking. transform-box: view-box
        so transform-origin can be given in the icon's own 24x24 coordinates
        rather than the rendered box's. */
-    .glass-btn .walk-fig > * { transform-box: view-box; }
-    .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .arm-b { transform-origin: 11px 13px; }
-    .glass-btn .walk-fig .leg-b { transform-origin: 11px 13px; }
-    .glass-btn .walk-fig .arm-a, .glass-btn .walk-fig .arm-b { transform-origin: 12px 6.5px; }
-    .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .arm-a { animation: walk-swing-a 1s ease-in-out infinite; }
-    .glass-btn .walk-fig .leg-b, .glass-btn .walk-fig .arm-b { animation: walk-swing-b 1s ease-in-out infinite; }
-    @keyframes walk-swing-a { 0%, 100% { transform: rotate(-17deg); } 50% { transform: rotate(17deg); } }
-    @keyframes walk-swing-b { 0%, 100% { transform: rotate(17deg); } 50% { transform: rotate(-17deg); } }
+    .walk-fig > * { transform-box: view-box; }
+    .walk-fig .leg-a, .walk-fig .leg-b { transform-origin: 11.4px 13.2px; }
+    .walk-fig .arm-a, .walk-fig .arm-b { transform-origin: 12.1px 7.4px; }
+    .walk-fig .leg-a, .walk-fig .arm-a { animation: walk-swing-a 0.9s ease-in-out infinite; }
+    .walk-fig .leg-b, .walk-fig .arm-b { animation: walk-swing-b 0.9s ease-in-out infinite; }
+    @keyframes walk-swing-a { 0%, 100% { transform: rotate(-15deg); } 50% { transform: rotate(15deg); } }
+    @keyframes walk-swing-b { 0%, 100% { transform: rotate(15deg); } 50% { transform: rotate(-15deg); } }
     @media (prefers-reduced-motion: reduce) {
       #home-orb { animation: none; }
-      .glass-btn .walk-fig .leg-a, .glass-btn .walk-fig .leg-b,
-      .glass-btn .walk-fig .arm-a, .glass-btn .walk-fig .arm-b { animation: none; }
+      .walk-fig .leg-a, .walk-fig .leg-b,
+      .walk-fig .arm-a, .walk-fig .arm-b { animation: none; }
     }
 
     /* --- loader ----------------------------------------------------------- */
@@ -500,7 +528,7 @@
 
   <div id="clock">--:--</div>
 
-  <div id="hover-label"><span class="hl-title"></span><span class="hl-meta"></span></div>
+  <div id="hover-label"><span class="hl-plate"><span class="hl-title"></span><span class="hl-meta"></span></span></div>
 
   <div id="loader">
     <span class="name">Gulmohar</span>

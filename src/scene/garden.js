@@ -32,6 +32,16 @@ const PATH_BASE_R = 21.0;
 const PATH_WIDTH = 2.4;
 const GAZEBO_CLEAR_R = 5.2;
 
+/**
+ * Whether a point stands inside the pavilion. A painting in there is hung on
+ * built architecture -- a post, a rail -- and architecture is the one thing in
+ * this garden a canvas must never turn away from, so this is what paintings.js
+ * asks before deciding whether a painting is allowed to billboard at all.
+ */
+export function insideGazebo(x, z, margin = 0) {
+    return Math.hypot(x - GARDEN_POINTS.GAZEBO.x, z - GARDEN_POINTS.GAZEBO.z) < GAZEBO_CLEAR_R + margin;
+}
+
 function angDiff(a, b) {
     return Math.atan2(Math.sin(a - b), Math.cos(a - b));
 }

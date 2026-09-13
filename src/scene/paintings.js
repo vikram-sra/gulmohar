@@ -7,7 +7,7 @@ import { getAssetUrl } from '../utils/paths.js';
 import { galleryUrl } from '../cloud/config.js';
 import { toPlacementRecord } from '../cloud/schema.js';
 import { QUALITY } from '../quality.js';
-import { groundHeightAt } from './garden.js';
+import { groundHeightAt, insideGazebo } from './garden.js';
 // The canopy-extent half of place/surfaces.js -- SDK-free, and the visitor
 // bundle already pays to load the trees themselves, so reusing their fitted
 // bounds for the rope mount's real branch height costs one more bounding-box
@@ -73,6 +73,12 @@ const BILLBOARD_LIMIT = {
     surface: THREE.MathUtils.degToRad(7)
 };
 const BILLBOARD_FOCUSED_LIMIT = Math.PI;
+// The pavilion is the exception to all of the above, including focus: a
+// painting in there is hung on built architecture, square to a post or a rail,
+// and a canvas that swings off a post it is bolted to looks wrong at any
+// distance and worse close up. Anything inside the gazebo footprint stays
+// exactly where it was hung -- this one, and any hung there later.
+const BILLBOARD_FIXED = 0;
 // How fast a painting settles toward facing you. Exponential, so it is
 // frame-rate independent and never overshoots.
 const BILLBOARD_RESPONSE = 3.5;
@@ -187,6 +193,8 @@ const ROPE_CANOPY_MARGIN_M = 0.9;
 // rather than being clipped back down to it.
 const ROPE_BRANCH_OVERSHOOT_M = 2.5;
 const ROPE_RISE_MIN_M = 0.15;
+// The longest rope worth drawing to a branch found overhead. See ropeReach.
+const ROPE_MAX_RISE_M = 2.2;
 
 /**
  * The rope length that reaches into real canopy overhead, or null when
@@ -209,13 +217,41 @@ function ropeReach(gardenGroup, canopies, x, z, frameTopWorldY) {
         gardenGroup, c.name, x, z,
         frameTopWorldY + ROPE_RISE_MIN_M, ceiling + ROPE_BRANCH_OVERSHOOT_M
     );
-    if (branchY !== null) return branchY - frameTopWorldY;
+    // A branch that is really there wins -- but only if it is within reach.
+    // Canopies are mostly gaps, so the first solid thing straight up can
+    // easily be a limb six metres overhead, and a painting on six metres of
+    // rope does not read as hung, it reads as dropped. Past that the honest
+    // answer is that nothing is hanging this, so fall back to a short rope
+    // that disappears into the leaves rather than drawing a line to a branch
+    // no one would have tied it to.
+    if (branchY !== null && branchY - frameTopWorldY <= ROPE_MAX_RISE_M) {
+        return branchY - frameTopWorldY;
+    }
     return Math.min(ROPE_TARGET_RISE_M, available);
 }
 
-export function createMountFurniture(mount, w, h, rise, groundDrop) {
+// Where the corner ropes meet below the branch. Short, and never more than a
+// third of the drop, so a painting hung just under a low branch still gets a
+// visible vertical run rather than a bare triangle.
+function tieHeight(rise) {
+    return Math.min(0.18, Math.max(rise, 0) * 0.35);
+}
+
+/**
+ * @param {'fixed'|'turning'|'all'} part which half to build. A hanging mount
+ *   is two things at once: hardware fixed in the world (a rope up to a branch,
+ *   a nail in bark) and hardware tied to the canvas (the ropes into its top
+ *   corners). Billboarding turns only the canvas, so the two halves have to be
+ *   parented separately or the ropes tear away from the corners they hold the
+ *   moment the painting turns. They meet on the yaw axis (x = z = 0), which is
+ *   the one point both halves agree on at any angle. 'all' builds both, for
+ *   the placement ghost, which never billboards.
+ */
+export function createMountFurniture(mount, w, h, rise, groundDrop, part = 'all') {
     const group = new THREE.Group();
     group.name = 'PaintingMount';
+    const wantFixed = part === 'all' || part === 'fixed';
+    const wantTurning = part === 'all' || part === 'turning';
 
     if (mount === 'easel') {
         const wood = woodMaterial();
@@ -244,18 +280,37 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
     if (mount === 'rope') {
         const rope = ropeMaterial();
         const top = h / 2 + 0.01;
-        const anchorY = top + Math.max(rise || 0.9, 0.15);
-        // Both ropes converge slightly toward a single knot overhead, which
-        // is what stops it reading as two unrelated vertical lines.
-        const knot = new THREE.Vector3(0, anchorY, 0);
-        [-w * 0.42, w * 0.42].forEach((x) => {
-            const s = strut(_ropeGeo, rope, new THREE.Vector3(x, top, 0), knot);
-            if (s) { s.castShadow = false; group.add(s); }
-        });
-        const hook = new THREE.Mesh(_hookGeo, hookMaterial());
-        hook.position.copy(knot);
-        hook.castShadow = false;
-        group.add(hook);
+        const drop = Math.max(rise || 0.9, 0.15);
+        const anchorY = top + drop;
+        // The tie point sits on the yaw axis, so both halves keep meeting at
+        // the same place however far the canvas has turned.
+        const tieY = top + tieHeight(drop);
+        const tie = new THREE.Vector3(0, tieY, 0);
+
+        if (wantFixed) {
+            // One plumb run from the tie up to the branch. Vertical because it
+            // is holding weight, and unmoved by billboarding because it is
+            // tied to the tree, not to the picture.
+            const line = strut(_ropeGeo, rope, tie, new THREE.Vector3(0, anchorY, 0));
+            if (line) { line.castShadow = false; group.add(line); }
+            const hook = new THREE.Mesh(_hookGeo, hookMaterial());
+            hook.position.set(0, anchorY, 0);
+            hook.castShadow = false;
+            group.add(hook);
+        }
+        if (wantTurning) {
+            [-w * 0.42, w * 0.42].forEach((x) => {
+                const s = strut(_ropeGeo, rope, new THREE.Vector3(x, top, 0), tie);
+                if (s) { s.castShadow = false; group.add(s); }
+            });
+            // A bead at the junction, so the V and the vertical run read as
+            // one knotted rope rather than three lines that happen to touch.
+            const knot = new THREE.Mesh(_hookGeo, hookMaterial());
+            knot.scale.setScalar(0.6);
+            knot.position.copy(tie);
+            knot.castShadow = false;
+            group.add(knot);
+        }
         return group;
     }
 
@@ -264,17 +319,21 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
         // picture wire down to each top corner -- without this a painting
         // hung flat on a trunk had nothing visibly holding it there at all.
         const wire = ropeMaterial();
-        const nail = new THREE.Vector3(0, h / 2 + 0.035, 0.012);
-        const nailMesh = new THREE.Mesh(_hookGeo, nailMaterial());
-        nailMesh.scale.setScalar(0.5);
-        nailMesh.position.copy(nail);
-        nailMesh.castShadow = false;
-        group.add(nailMesh);
-        const top = h / 2 - 0.015;
-        [-w * 0.3, w * 0.3].forEach((x) => {
-            const s = strut(_ropeGeo, wire, new THREE.Vector3(x, top, 0.008), nail, 0.55);
-            if (s) { s.castShadow = false; group.add(s); }
-        });
+        const nail = new THREE.Vector3(0, h / 2 + 0.035, 0);
+        if (wantFixed) {
+            const nailMesh = new THREE.Mesh(_hookGeo, nailMaterial());
+            nailMesh.scale.setScalar(0.5);
+            nailMesh.position.copy(nail);
+            nailMesh.castShadow = false;
+            group.add(nailMesh);
+        }
+        if (wantTurning) {
+            const top = h / 2 - 0.015;
+            [-w * 0.3, w * 0.3].forEach((x) => {
+                const s = strut(_ropeGeo, wire, new THREE.Vector3(x, top, 0.008), nail, 0.55);
+                if (s) { s.castShadow = false; group.add(s); }
+            });
+        }
         return group;
     }
 
@@ -284,6 +343,8 @@ export function createMountFurniture(mount, w, h, rise, groundDrop) {
 const FRAME_STYLES = {
     'pale-wood': { color: 0xc9b79a, roughness: 0.62, metalness: 0.05 },
     'maple': { color: 0xc98a2e, roughness: 0.45, metalness: 0.15 },
+    'ebony': { color: 0x241f1c, roughness: 0.4, metalness: 0.08 },
+    'white': { color: 0xefe9dd, roughness: 0.75, metalness: 0.0 },
     'none': { color: 0x3a4238, roughness: 0.7, metalness: 0.0 },
     // Near-mirror: low roughness so it actually specular-highlights against
     // the sky and canopy rather than just reading as pale grey, which is all
@@ -427,13 +488,13 @@ export function mountPainting(record, gardenGroup, canopies = null) {
 
     // Where the furniture rides depends on what it represents. An easel's
     // ledge holds the canvas up from underneath -- if the canvas turned
-    // without it, it would visibly float off its own stand -- so it goes on
-    // `frame` and turns with it. A rope is tied to a real branch and a nail
-    // is driven into real bark: fixed points in the world that a turning
-    // canvas must not drag around with it, so those go on the outer `group`,
-    // which billboarding never rotates.
+    // without it, it would visibly float off its own stand -- so all of it
+    // goes on `frame` and turns with it. A hanging mount is split: the run up
+    // to the branch and the nail in the bark are fixed points in the world
+    // and stay on the outer `group`, while the ropes into the canvas's own
+    // top corners ride on `frame`, because those corners move when it turns.
     const mount = normalizeMount(record.mount);
-    const furnitureParent = (mount === 'rope' || mount === 'surface') ? group : frame;
+    const split = mount === 'rope' || mount === 'surface';
     if (mount === 'easel' || mount === 'rope' || mount === 'surface') {
         const scale = record.scale || 1;
         const groundY = groundHeightAt(group.position.x, group.position.z);
@@ -449,11 +510,16 @@ export function mountPainting(record, gardenGroup, canopies = null) {
                 group.position.y + (height * scale) / 2);
             if (reach !== null) riseM = reach;
         }
-        const furniture = createMountFurniture(
-            mount, width, height, riseM / scale,
-            Math.max((group.position.y - groundY) / scale, 0)
-        );
-        if (furniture) furnitureParent.add(furniture);
+        const drop = Math.max((group.position.y - groundY) / scale, 0);
+        if (split) {
+            const fixed = createMountFurniture(mount, width, height, riseM / scale, drop, 'fixed');
+            if (fixed) group.add(fixed);
+            const turning = createMountFurniture(mount, width, height, riseM / scale, drop, 'turning');
+            if (turning) frame.add(turning);
+        } else {
+            const furniture = createMountFurniture(mount, width, height, riseM / scale, drop);
+            if (furniture) frame.add(furniture);
+        }
     }
 
     panel.material.map = placeholderTexture();
@@ -469,9 +535,11 @@ export function mountPainting(record, gardenGroup, canopies = null) {
     // the outer group's fixed base yaw (it starts at identity), not an
     // absolute world angle -- see updatePaintingBillboards, which is the
     // half of this that has to know that.
+    const fixedInPlace = insideGazebo(group.position.x, group.position.z);
     frame.userData.billboard = {
         baseYaw: 0, yaw: 0, shadowYaw: 0, focused: false,
-        limit: BILLBOARD_LIMIT[mount] ?? BILLBOARD_LIMIT.surface
+        fixed: fixedInPlace,
+        limit: fixedInPlace ? BILLBOARD_FIXED : (BILLBOARD_LIMIT[mount] ?? BILLBOARD_LIMIT.surface)
     };
 
     const interactiveData = {
@@ -596,7 +664,7 @@ export function updatePaintingBillboards(mounted, camera, dt) {
         // expressed relative to the mount's own fixed yaw, since frame's
         // rotation is a delta on top of that, not an absolute world angle.
         const worldFacing = Math.atan2(cam.x - group.position.x, cam.z - group.position.z);
-        const limit = b.focused ? BILLBOARD_FOCUSED_LIMIT : b.limit;
+        const limit = b.fixed ? BILLBOARD_FIXED : (b.focused ? BILLBOARD_FOCUSED_LIMIT : b.limit);
         const target = THREE.MathUtils.clamp(wrapAngle(worldFacing - group.rotation.y), -limit, limit);
         b.yaw += wrapAngle(target - b.yaw) * ease;
         frame.rotation.y = b.yaw;
