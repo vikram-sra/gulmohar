@@ -26,7 +26,11 @@ const TIERS = {
         shadowRadius: 1.0, foliageReceiveShadow: false,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2,
         canopySide: THREE.DoubleSide,
-        skySegW: 16, skySegH: 12, dustCount: 0
+        skySegW: 16, skySegH: 12, dustCount: 0,
+        // Off entirely: it is a full-screen extra pass plus a depth texture
+        // attachment on both ping-pong targets, and the phones this tier
+        // targets are exactly the fill-rate-limited devices that cost hurts.
+        dofTaps: 0, dofMaxBlurPx: 0
     },
     medium: {
         floorLeafCount: 24, microPlantCount: 34,
@@ -35,7 +39,8 @@ const TIERS = {
         shadowRadius: 1.4, foliageReceiveShadow: true,
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
         canopySide: THREE.DoubleSide,
-        skySegW: 24, skySegH: 16, dustCount: 60
+        skySegW: 24, skySegH: 16, dustCount: 60,
+        dofTaps: 8, dofMaxBlurPx: 3.0
     },
     high: {
         floorLeafCount: 45, microPlantCount: 60,
@@ -48,7 +53,8 @@ const TIERS = {
         shadowRadius: 1.8, foliageReceiveShadow: true,
         pixelRatioCap: 1.5, antialias: true, anisotropy: 8,
         canopySide: THREE.DoubleSide,
-        skySegW: 32, skySegH: 24, dustCount: 100
+        skySegW: 32, skySegH: 24, dustCount: 100,
+        dofTaps: 12, dofMaxBlurPx: 4.0
     }
 };
 

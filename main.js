@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { DofPass, attachDepthTexture } from './src/post/dofPass.js';
 import gsap from 'gsap';
 
 import { createTorontoSkySystem } from './src/sky/celestial.js';
@@ -224,6 +225,18 @@ class GulmoharApp {
         // cheaper and far more controllable than a full-screen pass.
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
+        // A very subtle pointer-driven rack focus: whatever the pointer is
+        // over stays sharp, distant lawn and canopy soften a little. Off
+        // entirely on the low tier (QUALITY.dofTaps === 0). Depth comes free
+        // off RenderPass's own depth test -- see src/post/dofPass.js for why
+        // this is one extra full-screen pass rather than a second scene
+        // render, and why the focus distance never leaves the GPU.
+        this.dofPass = null;
+        if (QUALITY.dofTaps > 0) {
+            attachDepthTexture(this.composer);
+            this.dofPass = new DofPass(this.camera, { taps: QUALITY.dofTaps, maxBlurPx: QUALITY.dofMaxBlurPx });
+            this.composer.addPass(this.dofPass);
+        }
         this.composer.addPass(new OutputPass());
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -1749,6 +1762,20 @@ class GulmoharApp {
         this._updatePaintingFocus();
         if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
             this._paintingsTurned = true;
+        }
+        if (this.dofPass) {
+            // this.pointer is NDC (-1..1) and starts at the (-2,-2) sentinel
+            // before any pointer event has arrived; touch only ever updates
+            // it on contact (see onPointerMove's own comment), so between
+            // touches it holds the last tap rather than tracking a hover
+            // that does not exist. Either way, off-screen reads as "no
+            // pointer" here and falls back to the screen centre.
+            const px = this.pointer.x, py = this.pointer.y;
+            if (px >= -1 && px <= 1 && py >= -1 && py <= 1) {
+                this.dofPass.pointerUV.set(px * 0.5 + 0.5, py * 0.5 + 0.5);
+            } else {
+                this.dofPass.pointerUV.set(0.5, 0.5);
+            }
         }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from

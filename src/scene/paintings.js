@@ -51,14 +51,16 @@ export function normalizeMount(mount) {
     return LEGACY_MOUNTS[mount] || 'surface';
 }
 
-// Paintings turn to face whoever is looking at them, but only as far as the
-// thing holding them up allows. A canvas on ropes can swing to face you
-// outright; an easel can be walked round a bit; a painting flat on bark can
-// only drift, or it would rotate off the trunk it is nailed to.
+// Paintings turn to face whoever is looking at them, as far as the thing
+// holding them up allows. Ropes swing, an easel can be walked round, and a
+// canvas leaning on the grass can be turned where it stands -- all three
+// carry their own furniture with them, so they may face you outright. Only a
+// painting nailed flat to bark is pinned: it drifts, or it would rotate off
+// the trunk it hangs on.
 const BILLBOARD_LIMIT = {
     rope: Math.PI,
-    easel: THREE.MathUtils.degToRad(50),
-    ground: THREE.MathUtils.degToRad(50),
+    easel: Math.PI,
+    ground: Math.PI,
     surface: THREE.MathUtils.degToRad(20)
 };
 // How fast a painting settles toward facing you. Exponential, so it is
