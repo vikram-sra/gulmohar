@@ -16,7 +16,7 @@ import { createGrassField } from './src/scene/grass.js';
 import { createLawn } from './src/scene/lawn.js';
 import {
     loadPlacements, mountAllPaintings, updatePaintingBillboards, commitPaintingShadows,
-    setBillboardFrozen, normalizeMount, METRES_PER_INCH
+    setBillboardFrozen, setBillboardFocus, normalizeMount, METRES_PER_INCH
 } from './src/scene/paintings.js';
 // SDK-free geometry (see its own header) -- fitting trunk circles once at
 // load, for collision, is the same one-time cost already paid here for the
@@ -1091,6 +1091,9 @@ class GulmoharApp {
      */
     _setPaintingFocus(id, focusDist = 0) {
         setBillboardFrozen(this.paintings, id);
+        // Widens this one painting's turn limit for as long as it is the one
+        // being looked at; a surface mount barely moves otherwise.
+        setBillboardFocus(this.paintings, id);
         // Letting go of a painting also gives the orbit floor back, or you
         // would keep a canvas's 1.5m dolly limit for the rest of the session
         // and be able to push the camera inside the landmarks.
@@ -1406,7 +1409,9 @@ class GulmoharApp {
 
     setUIVisibility(visible) {
         this.uiVisible = visible;
-        if (this.uiContainer) this.uiContainer.classList.toggle('ui-hidden', !visible);
+        // The bar, not the whole dock: the orb is inside the dock too and is
+        // the one thing that never goes away.
+        if (this.uiBar) this.uiBar.classList.toggle('bar-collapsed', !visible);
         const clock = document.getElementById('clock');
         if (clock) clock.classList.toggle('ui-hidden', !visible);
     }
@@ -1418,6 +1423,7 @@ class GulmoharApp {
 
         const wrapper = document.createElement('div');
         wrapper.className = 'glass-bar-wrapper';
+        this.uiBar = wrapper;
         wrapper.onmouseenter = () => this.resetUIHideTimer();
 
         const icons = {
@@ -1608,7 +1614,7 @@ class GulmoharApp {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
             if (this.daySpeed < 0.035) this.daySpeed = 0.035;
             this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
-        }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; this._pullBackForLightChange(); });
+        }, () => { this.sunAngle = Math.PI / 2; this.daySpeed = 0; });
 
         const moonBtn = createBtn(icons.night, null, 'Midnight · Hold for a time-lapse');
         moonBtn.classList.add('night-btn');
@@ -1616,7 +1622,7 @@ class GulmoharApp {
             if (this.motionPaused) this.setMotionPaused(false, { rotation: false });
             if (this.daySpeed < 0.035) this.daySpeed = 0.035;
             this.daySpeed = Math.min(0.28, this.daySpeed * 1.08);
-        }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; this._pullBackForLightChange(); });
+        }, () => { this.sunAngle = 3 * Math.PI / 2; this.daySpeed = 0; });
 
         // The routes to the flat pages also exist in the always-visible corner
         // nav, since the dock auto-hides and these must never become unreachable.
@@ -1638,12 +1644,11 @@ class GulmoharApp {
         }
 
         container.appendChild(wrapper);
-        document.body.appendChild(container);
 
-        // The orb: outside `container`, so setUIVisibility never touches it.
-        // It is the one control that is always on screen -- both "take me
-        // back to the start" and the handle that brings the rest of the dock
-        // back after it has collapsed into it.
+        // The orb is part of the dock, sat directly under the bar: one
+        // assembly, not two floating pieces. setUIVisibility collapses the
+        // bar into it rather than hiding the dock, so the orb survives and
+        // stays the handle that brings the rest back.
         const orb = document.createElement('button');
         orb.type = 'button';
         orb.id = 'home-orb';
@@ -1661,7 +1666,8 @@ class GulmoharApp {
             this.resetScene();
             this.resetUIHideTimer();
         });
-        document.body.appendChild(orb);
+        container.appendChild(orb);
+        document.body.appendChild(container);
         this.homeOrb = orb;
 
         this.resetUIHideTimer();

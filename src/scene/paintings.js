@@ -56,16 +56,23 @@ export function normalizeMount(mount) {
     return LEGACY_MOUNTS[mount] || 'surface';
 }
 
-// Every hung painting turns to face whoever is looking at it, without limit
-// -- most noticeably once you have zoomed in on one, where standing still
-// and having it not turn with you would read as broken far more than a
-// surface-mounted canvas swinging off its own nail reads as physically odd.
+// Every hung painting turns to face whoever is looking at it once you have
+// zoomed in on one -- standing in front of a canvas and having it not turn
+// with you reads as broken.
+//
+// Away from that, though, the mount matters. A canvas on ropes, on an easel,
+// or leaning on the grass carries its own support and can face any direction
+// without looking wrong. One nailed flat to a post or a trunk cannot: left
+// free, it swings off the thing it is nailed to and reads as floating in
+// front of it rather than attached to it. So a surface mount barely drifts
+// until it is actually being looked at, and then it turns like the rest.
 const BILLBOARD_LIMIT = {
     rope: Math.PI,
     easel: Math.PI,
     ground: Math.PI,
-    surface: Math.PI
+    surface: THREE.MathUtils.degToRad(7)
 };
+const BILLBOARD_FOCUSED_LIMIT = Math.PI;
 // How fast a painting settles toward facing you. Exponential, so it is
 // frame-rate independent and never overshoots.
 const BILLBOARD_RESPONSE = 3.5;
@@ -463,7 +470,7 @@ export function mountPainting(record, gardenGroup, canopies = null) {
     // absolute world angle -- see updatePaintingBillboards, which is the
     // half of this that has to know that.
     frame.userData.billboard = {
-        baseYaw: 0, yaw: 0, shadowYaw: 0,
+        baseYaw: 0, yaw: 0, shadowYaw: 0, focused: false,
         limit: BILLBOARD_LIMIT[mount] ?? BILLBOARD_LIMIT.surface
     };
 
@@ -589,7 +596,8 @@ export function updatePaintingBillboards(mounted, camera, dt) {
         // expressed relative to the mount's own fixed yaw, since frame's
         // rotation is a delta on top of that, not an absolute world angle.
         const worldFacing = Math.atan2(cam.x - group.position.x, cam.z - group.position.z);
-        const target = THREE.MathUtils.clamp(wrapAngle(worldFacing - group.rotation.y), -b.limit, b.limit);
+        const limit = b.focused ? BILLBOARD_FOCUSED_LIMIT : b.limit;
+        const target = THREE.MathUtils.clamp(wrapAngle(worldFacing - group.rotation.y), -limit, limit);
         b.yaw += wrapAngle(target - b.yaw) * ease;
         frame.rotation.y = b.yaw;
         if (Math.abs(wrapAngle(b.yaw - b.shadowYaw)) > BILLBOARD_SHADOW_EPS) needsShadowRefresh = true;
@@ -604,6 +612,17 @@ export function updatePaintingBillboards(mounted, camera, dt) {
  * swung round would slide out of the shot it was being given -- and a canvas
  * you are standing in front of studying should be still.
  */
+/**
+ * Marks which painting is currently being looked at. Only that one may turn
+ * without regard to what it is mounted on -- see BILLBOARD_LIMIT.
+ */
+export function setBillboardFocus(mounted, id) {
+    if (!mounted) return;
+    for (const [key, { frame }] of mounted) {
+        if (frame.userData.billboard) frame.userData.billboard.focused = key === id;
+    }
+}
+
 export function setBillboardFrozen(mounted, id) {
     if (!mounted) return;
     for (const [key, { frame }] of mounted) {

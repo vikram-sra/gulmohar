@@ -181,14 +181,14 @@
        drag through the gaps between buttons still orbit the camera. */
     #dock {
       position: absolute;
-      bottom: calc(112px + env(safe-area-inset-bottom));
-      transform-origin: bottom center;
+      bottom: calc(34px + env(safe-area-inset-bottom));
       width: 100%;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
       z-index: 1000;
       pointer-events: none;
-      transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
     }
     .glass-bar-wrapper {
       pointer-events: auto;
@@ -260,19 +260,29 @@
     .glass-btn .btn-tip.tip-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
     .ui-hidden { opacity: 0; transform: translateY(12px); pointer-events: none; }
-    /* The dock doesn't just fade -- it drops and shrinks toward the orb
-       sitting below it, so "where did the controls go" has a visible
-       answer and the orb reads as the thing they went into. */
-    #dock.ui-hidden { transform: translateY(46px) scale(0.62); }
+    /* The bar doesn't just fade -- it drops and shrinks into the orb sat
+       directly beneath it, so "where did the controls go" has a visible
+       answer and the orb reads as the thing they went into. The orb is a
+       sibling inside #dock and is never given this class, so it stays. */
+    .glass-bar-wrapper {
+      transform-origin: bottom center;
+      transition: opacity 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+                  transform 0.42s cubic-bezier(0.16, 1, 0.3, 1),
+                  background 0.9s ease, border-color 0.9s ease, color 0.9s ease;
+    }
+    .glass-bar-wrapper.bar-collapsed {
+      opacity: 0;
+      transform: translateY(30px) scale(0.34);
+      pointer-events: none;
+    }
 
     /* --- home orb ---------------------------------------------------------
        The one control that never hides: it is both "go back to the start"
        and the handle that brings the rest of the dock back. */
     #home-orb {
-      position: fixed;
-      bottom: calc(38px + env(safe-area-inset-bottom));
-      left: 50%;
-      margin-left: -27px;
+      position: relative;
+      flex: none;
+      pointer-events: auto;
       width: 54px; height: 54px;
       z-index: 1002;
       display: flex; align-items: center; justify-content: center;
@@ -339,14 +349,11 @@
 
     @media (max-width: 600px) {
       #dock {
-        bottom: calc(82px + env(safe-area-inset-bottom));
+        bottom: calc(14px + env(safe-area-inset-bottom));
         padding: 0 10px;
         width: 100vw;
       }
-      #home-orb {
-        bottom: calc(16px + env(safe-area-inset-bottom));
-        width: 50px; height: 50px; margin-left: -25px;
-      }
+      #home-orb { width: 50px; height: 50px; }
       #home-orb svg { width: 24px; height: 24px; }
       #hover-label { bottom: calc(150px + env(safe-area-inset-bottom)); }
       .glass-bar-wrapper {
