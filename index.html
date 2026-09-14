@@ -49,6 +49,9 @@
                     inset 0 1px 0 rgba(255, 255, 255, 0.66);
       --hud-halo: 0 1px 10px rgba(246, 241, 227, 0.9);
       --hud-halo-tight: rgba(246, 241, 227, 0.95);
+      /* The caption's scrim: a soft pool of light behind the words, with no
+         edge of its own. See #hover-label. */
+      --hl-scrim: rgba(247, 243, 232, 0.55);
       --hud-btn-bg: rgba(255, 255, 255, 0.30);
       --hud-btn-border: rgba(37, 50, 38, 0.12);
       --hud-tip-bg: rgba(246, 241, 227, 0.82);
@@ -68,6 +71,7 @@
       --hud-shadow: 0 14px 44px rgba(10, 14, 24, 0.44), inset 0 1px 0 rgba(255, 255, 255, 0.26);
       --hud-halo: 0 2px 12px rgba(12, 16, 26, 0.8);
       --hud-halo-tight: rgba(10, 14, 22, 0.95);
+      --hl-scrim: rgba(8, 12, 20, 0.5);
       --hud-btn-bg: rgba(255, 255, 255, 0.06);
       --hud-btn-border: rgba(255, 255, 255, 0.13);
       --hud-tip-bg: rgba(16, 20, 28, 0.68);
@@ -149,46 +153,92 @@
     /* --- hover label ------------------------------------------------------ */
     #hover-label {
       position: fixed;
-      bottom: calc(184px + env(safe-area-inset-bottom));
-      left: 50%;
-      transform: translateX(-50%) translateY(8px);
+      /* Low, just clear of the dock: a caption belongs at the foot of the
+         frame, not floating across the middle of the work it names. */
+      bottom: calc(126px + env(safe-area-inset-bottom));
+      /* Spanning the viewport and centring the plate inside it, rather than
+         left:50% with a translate. With only `left` set, the element's
+         containing block runs from the middle to the right edge, so its
+         available width is half the viewport and max-width never got a say --
+         a two-word title was wrapping at around 300px. */
+      left: 0;
+      right: 0;
+      transform: translateY(8px);
       z-index: 900;
       text-align: center;
       pointer-events: none;
       opacity: 0;
       transition: opacity 0.22s ease, transform 0.22s ease;
     }
-    #hover-label.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
-    /* This label used to rely on stacked text-shadow halos alone. That works
-       over sky or a flat wall, but the label's home is over lawn: grass is
-       high-frequency and lands in the same mid-tone luminance band as the
-       ink, so a halo drawn per glyph gets chopped up by the blades behind it
-       and never resolves into a readable ground. No amount of extra shadow
-       fixes that -- it needs an actual plate. It gets the dock's own glass,
-       which both guarantees the contrast and makes the label read as part of
-       the same HUD rather than text floating loose on the scene. The halos
-       stay on top of it, now doing the small job they are good at. */
+    #hover-label.visible { opacity: 1; transform: translateY(0); }
+
+    /* A gallery wall label, not another piece of HUD.
+       The readability problem is real -- grass is high-frequency and lands in
+       the same luminance band as the ink, so a per-glyph halo gets chopped up
+       by the blades behind it and never resolves. But solving it with the
+       dock's own glass pill gave the caption a border, a shadow and a radius
+       identical to the controls sitting just below it, and it read as a
+       second dock rather than as a title for the work.
+       So: keep the real backdrop blur, and mask it with a radial gradient so
+       it has no edge anywhere. What is left is a soft pool of light behind
+       the words -- enough ground to read against, no object on screen. */
     #hover-label .hl-plate {
+      position: relative;
       display: inline-block;
-      padding: 7px 16px 8px;
-      border-radius: 16px;
-      background: linear-gradient(180deg, var(--hud-glass-a) 0%, var(--hud-glass-b) 100%);
-      backdrop-filter: blur(22px) saturate(170%) brightness(1.03);
-      -webkit-backdrop-filter: blur(22px) saturate(170%) brightness(1.03);
-      border: 0.5px solid var(--hud-border);
-      box-shadow: var(--hud-shadow);
-      max-width: min(78vw, 30rem);
+      padding: 7px 40px 10px;
+      max-width: min(88vw, 36rem);
     }
+    #hover-label .hl-plate::before {
+      content: '';
+      position: absolute;
+      inset: -26px -14px -24px;
+      background: var(--hl-scrim);
+      backdrop-filter: blur(14px) saturate(140%);
+      -webkit-backdrop-filter: blur(14px) saturate(140%);
+      /* The whole point: the blur and the tint fade out together, so there is
+         no rectangle and no rim -- only the middle is actually opaque. */
+      /* farthest-SIDE, not the default farthest-corner: with farthest-corner
+         the gradient only reaches transparent out at the corners, so it is
+         still part-opaque along each mid-edge and the blur box shows up as a
+         crisp rectangle. farthest-side lands transparent exactly on every
+         edge, which is what leaves no seam anywhere. */
+      -webkit-mask-image: radial-gradient(ellipse farthest-side at 50% 50%, #000 0 74%, rgba(0,0,0,0.42) 88%, transparent 100%);
+      mask-image: radial-gradient(ellipse farthest-side at 50% 50%, #000 0 74%, rgba(0,0,0,0.42) 88%, transparent 100%);
+    }
+    #hover-label .hl-title,
+    #hover-label .hl-meta { position: relative; }   /* above the scrim */
     #hover-label .hl-title {
-      display: block; color: var(--hud-ink-strong); font-size: 0.95rem; font-weight: 400;
-      letter-spacing: 0.14rem;
-      text-shadow: 0 0 3px var(--hud-halo-tight);
+      display: block;
+      color: var(--hud-ink-strong);
+      font-size: 1.04rem;
+      font-weight: 300;
+      letter-spacing: 0.2rem;
+      text-shadow: 0 0 4px var(--hud-halo-tight);
+    }
+    /* The hairline a museum label puts between the work and its description.
+       Does the job the pill's border was doing -- saying "these two lines are
+       one label" -- without drawing a box round them. */
+    #hover-label .hl-title::after {
+      content: '';
+      display: block;
+      width: 26px;
+      height: 1px;
+      margin: 8px auto 7px;
+      background: currentColor;
+      opacity: 0.32;
     }
     #hover-label .hl-meta {
-      display: block; color: var(--hud-ink-strong); font-size: 0.72rem;
-      letter-spacing: 0.14rem; margin-top: 3px; opacity: 0.9;
-      text-shadow: 0 0 3px var(--hud-halo-tight);
+      display: block;
+      color: var(--hud-ink-strong);
+      font-size: 0.68rem;
+      font-weight: 300;
+      letter-spacing: 0.16rem;
+      opacity: 0.88;
+      text-shadow: 0 0 5px var(--hud-halo-tight);
     }
+    /* Nothing to separate when there is no second line. */
+    #hover-label .hl-meta:empty { display: none; }
+    #hover-label .hl-plate:has(.hl-meta:empty) .hl-title::after { display: none; }
 
     /* --- dock -------------------------------------------------------------
        pointer-events: none on the bar with auto on the controls is what lets a
@@ -396,7 +446,7 @@
       }
       #home-orb { width: 50px; height: 50px; }
       #home-orb svg { width: 24px; height: 24px; }
-      #hover-label { bottom: calc(150px + env(safe-area-inset-bottom)); }
+      #hover-label { bottom: calc(118px + env(safe-area-inset-bottom)); }
       .glass-bar-wrapper {
         gap: 4px;
         padding: 4px 8px;

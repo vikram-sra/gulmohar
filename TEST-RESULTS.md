@@ -251,3 +251,29 @@ Fresh load, clean console: 7 paintings with mounts `easel, surface, ground,
 rope, surface, rope, surface`; 31 colliders (3 trunks + 21 gazebo + 7
 paintings); dock, orb and clock present; no `FlowerBeds` node; dust in scene;
 `RenderPass → DofPass → OutputPass`. `node scripts/check-bundle.mjs` passes.
+
+
+---
+
+## Follow-up — the hover caption
+
+The glass plate from the earlier readability fix worked and looked wrong: it
+had the dock's border, shadow and radius, sat directly above it, and read as a
+second dock rather than as a title for the work.
+
+Rebuilt as a gallery wall label. The backdrop blur stays — grass genuinely
+does need a real ground behind the ink — but it is now masked with a radial
+gradient so it has no edge anywhere: a soft pool of light, not an object.
+A hairline rule between the two lines does the job the border was doing.
+
+Two things worth remembering from it:
+
+* **`radial-gradient(ellipse at center, …)` defaults to farthest-*corner*.**
+  At the mid-edges the gradient is only part-way along, so the blur box showed
+  up as a crisp rectangle. `farthest-side` lands transparent on every edge.
+* **A latent bug surfaced on the way.** `#hover-label` was `position: fixed`
+  with `left: 50%` and no `right`, so its containing block ran from the middle
+  of the screen to the right edge — available width was half the viewport and
+  `max-width` never applied. "Royal Poinciana (Gulmohar)" was wrapping to four
+  lines at ~300px. Now `left: 0; right: 0` with the plate centred inside:
+  the same label is 385px on two lines.
