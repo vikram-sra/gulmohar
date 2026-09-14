@@ -32,6 +32,21 @@ const PATH_BASE_R = 21.0;
 const PATH_WIDTH = 2.4;
 const GAZEBO_CLEAR_R = 5.2;
 
+// How far above the waterline the bank must still be to be walkable. The
+// banks rise about 0.3m per metre, so this keeps a walker roughly a third of
+// a metre back from the water's edge rather than letting them stand in it.
+const POND_WADE_MARGIN_M = 0.10;
+
+/**
+ * Whether this point is in the pond -- at or below the waterline, with a
+ * little of the bank kept back too. Keyed on the baked terrain height rather
+ * than a radius, so it follows the basin's real, irregular shoreline; a
+ * circle would either leave part of the water walkable or fence off lawn.
+ */
+export function isInPond(x, z) {
+    return groundHeightAt(x, z) < POND_WATER_Y + POND_WADE_MARGIN_M;
+}
+
 /**
  * Whether a point stands inside the pavilion. A painting in there is hung on
  * built architecture -- a post, a rail -- and architecture is the one thing in
@@ -1198,115 +1213,18 @@ function setupFloorEverywhere(leavesGltf) {
 
     return { group: root, groundTexture, groundNormal };
 }
-
 // ---------------------------------------------------------------------------
-// 6b. Flower beds along the path's outer shoulder
+// 6b. Flower beds -- removed
 // ---------------------------------------------------------------------------
-// Two InstancedMeshes -- foliage and blossoms -- both sampled from the SAME
-// curve formula as createGardenPathway (PATH_BASE_R / PATH_WAVE_AMP), so a
-// bed can never drift out of alignment with the path it borders. Placement
-// hugs the outer edge and is widest at the clover's four outward lobes
-// (where sin(theta*4) peaks), which is what reads as planted rather than a
-// uniform painted verge.
-const BED_FOLIAGE_COLORS = [
-    new THREE.Color(0x4a5c34), new THREE.Color(0x5c7040),
-    new THREE.Color(0x3c4c2a), new THREE.Color(0x6b7d4a)
-];
-const BED_BLOSSOM_COLORS = [
-    new THREE.Color(0xd9502f), new THREE.Color(0xb03d22),   // gulmohar red
-    new THREE.Color(0xc98a2e), new THREE.Color(0xe3b65c)    // amber gold
-];
-
-/**
- * Wires a per-instance colour into an InstancedMesh's material through a
- * hand-rolled attribute, rather than `InstancedMesh.setColorAt()`.
- *
- * setColorAt is supposed to be sufficient on its own -- Three sets the
- * USE_INSTANCING_COLOR shader define from `object.instanceColor !== null` --
- * but measured on this build (see src/scene/grass.js for the full
- * diagnosis), that define never reached the compiled shader even with a
- * real, populated instanceColor attribute, so every instance rendered at
- * vColor's uninitialised default: black. Reusing the same manual wiring
- * here rather than rediscovering the bug a second time.
- */
-function wireInstancedColor(mesh, colorArray) {
-    mesh.geometry.setAttribute('aInstColor', new THREE.InstancedBufferAttribute(colorArray, 3));
-    mesh.material.onBeforeCompile = (shader) => {
-        shader.vertexShader = 'attribute vec3 aInstColor;\nvarying vec3 vInstColor;\n' + shader.vertexShader;
-        shader.vertexShader = shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            '#include <begin_vertex>\nvInstColor = aInstColor;'
-        );
-        shader.fragmentShader = 'varying vec3 vInstColor;\n' + shader.fragmentShader;
-        shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <color_fragment>',
-            '#include <color_fragment>\ndiffuseColor.rgb *= vInstColor;'
-        );
-    };
-    mesh.material.needsUpdate = true;
-}
-
-function createFlowerBeds() {
-    const group = new THREE.Group();
-    group.name = 'FlowerBeds';
-
-    const foliageGeo = new THREE.IcosahedronGeometry(0.16, 0);   // 20 tris, cheap by design
-    const blossomGeo = new THREE.IcosahedronGeometry(0.075, 0);
-
-    const foliageMat = new THREE.MeshStandardMaterial({ roughness: 0.85, metalness: 0.0 });
-    const blossomMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
-
-    const FOLIAGE_COUNT = 1400;
-    const BLOSSOM_COUNT = 800;
-    const foliage = new THREE.InstancedMesh(foliageGeo, foliageMat, FOLIAGE_COUNT);
-    const blossoms = new THREE.InstancedMesh(blossomGeo, blossomMat, BLOSSOM_COUNT);
-    [foliage, blossoms].forEach((m) => { m.castShadow = false; m.receiveShadow = true; m.frustumCulled = false; });
-    wireInstancedColor(foliage, new Float32Array(FOLIAGE_COUNT * 3));
-    wireInstancedColor(blossoms, new Float32Array(BLOSSOM_COUNT * 3));
-
-    const dummy = new THREE.Object3D();
-    const color = new THREE.Color();
-
-    const place = (mesh, count, colors, depthRange, radiusJitter) => {
-        const colorArray = mesh.geometry.attributes.aInstColor.array;
-        for (let i = 0; i < count; i++) {
-            const theta = Math.random() * Math.PI * 2;
-            // Widest at the clover's outward points: bias depth by how far
-            // sin(theta*4) has swung positive, so the lobes read as fuller beds.
-            const lobe = Math.max(0, Math.sin(theta * 4));
-            const pathR = pathRadiusAt(theta);
-            const edge = pathR + pathWidthAt(theta) * 0.5 + 0.25;
-            const depth = depthRange[0] + Math.random() * (depthRange[1] + lobe * 0.9 - depthRange[0]);
-            const r = edge + depth + (Math.random() - 0.5) * radiusJitter;
-            const x = Math.cos(theta) * r, z = Math.sin(theta) * r;
-
-            // Not in the bed if it isn't clear (or reuse a safe fallback spot
-            // rather than leaving a zero-matrix instance, which draws a
-            // degenerate triangle at the origin).
-            const clear = isGroundClear(x, z, 0.1);
-            const px = clear ? x : 0, pz = clear ? z : 0;
-            const s = clear ? (0.7 + Math.random() * 0.7) : 0;
-
-            dummy.position.set(px, groundHeightAt(px, pz) + 0.05 + Math.random() * 0.05, pz);
-            dummy.rotation.set(0, Math.random() * Math.PI * 2, 0);
-            dummy.scale.set(s, s, s);
-            dummy.updateMatrix();
-            mesh.setMatrixAt(i, dummy.matrix);
-
-            color.copy(colors[Math.floor(Math.random() * colors.length)])
-                .offsetHSL((Math.random() - 0.5) * 0.03, (Math.random() - 0.5) * 0.05, (Math.random() - 0.5) * 0.06);
-            colorArray[i * 3] = color.r; colorArray[i * 3 + 1] = color.g; colorArray[i * 3 + 2] = color.b;
-        }
-        mesh.instanceMatrix.needsUpdate = true;
-        mesh.geometry.attributes.aInstColor.needsUpdate = true;
-    };
-
-    place(foliage, FOLIAGE_COUNT, BED_FOLIAGE_COLORS, [0.1, 0.9], 0.5);
-    place(blossoms, BLOSSOM_COUNT, BED_BLOSSOM_COLORS, [0.15, 0.75], 0.6);
-
-    group.add(foliage, blossoms);
-    return group;
-}
+// There was a createFlowerBeds() here: ~2,200 instanced icosahedron blobs
+// along the path's outer shoulder, from before the garden had real plant
+// geometry. The meadow clumps and flower GLBs that setupVegetation scatters
+// now cover the same ground with actual modelled plants, and the call to it
+// was dropped when they landed -- but the function itself was left behind,
+// along with its colour tables and a copy of the instanced-colour wiring.
+// Deleted rather than revived: bringing the blobs back would put a second,
+// cruder planting scheme on top of the real one. See src/scene/grass.js for
+// the instanced-colour note the copy here used to carry.
 
 // ---------------------------------------------------------------------------
 // 6. Curving Garden Pathway (Centered at Origin 0,0,0)

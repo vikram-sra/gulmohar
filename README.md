@@ -14,6 +14,9 @@ npm run build    # → dist/
 Append `?edit` to enter **edit mode** (see [Edit mode](#edit-mode) below).
 Force a quality tier with `?q=low` / `?q=med` / `?q=high`.
 
+[**FEATURES.md**](FEATURES.md) is the feature-by-feature inventory, written
+from the visitor's and the artist's point of view — the list to test against.
+
 ## Layout
 
 ```

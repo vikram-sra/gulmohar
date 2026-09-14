@@ -15,9 +15,9 @@ import { groundHeightAt, insideGazebo } from './garden.js';
 import { fitCanopies, canopyOver, findBranchAbove } from '../place/surfaces.js';
 
 // ---------------------------------------------------------------------------
-// Paintings hung in the garden -- the read-only half. The editor
-// (src/edit/editor.js) writes the file this reads; nothing here imports from
-// the editor, so a visitor who never adds ?edit never downloads it.
+// Paintings hung in the garden -- the read-only half. The Studio
+// (src/studio/) and placement mode (src/place/) write what this reads;
+// nothing here imports from either, so a visitor downloads neither.
 //
 // Real inches, not a stylised scale: METRES_PER_INCH = 0.0254. A 24x32in
 // canvas is 0.61 x 0.81m, which sits naturally against an ~11m tree or a
@@ -41,20 +41,11 @@ export const METRES_PER_INCH = 0.0254;
 // visitors as much as for the artist placing it, so the mount type lives in
 // the saved record and is rebuilt here rather than being baked into a
 // position at placement time.
-export const MOUNTS = ['easel', 'ground', 'rope', 'surface'];
-
-// The editor's older vocabulary, still in public/paintings.json.
-const LEGACY_MOUNTS = {
-    'ground-lean': 'ground', lean: 'ground',
-    'ground-flat': 'ground', flat: 'ground',
-    tree: 'surface', wall: 'surface', hang: 'surface',
-    free: 'surface'
-};
-
-export function normalizeMount(mount) {
-    if (MOUNTS.includes(mount)) return mount;
-    return LEGACY_MOUNTS[mount] || 'surface';
-}
+// Imported *and* re-exported, not bare `export ... from`: that form creates
+// no local binding, so this module's own calls to normalizeMount below would
+// be undefined while every importer of it worked fine.
+import { MOUNTS, normalizeMount } from '../mounts.js';
+export { MOUNTS, normalizeMount };
 
 // Every hung painting turns to face whoever is looking at it once you have
 // zoomed in on one -- standing in front of a canvas and having it not turn

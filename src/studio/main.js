@@ -11,8 +11,9 @@ import {
     setStartHere, clearStartHere
 } from '../cloud/artworks.js';
 import { publish, publicArtworks } from '../cloud/publish.js';
+import { normalizeMount } from '../mounts.js';
 import { processImage } from '../cloud/images.js';
-import { writeZip } from '../edit/zip.js';
+import { writeZip } from '../utils/zip.js';
 
 const root = document.getElementById('studio');
 let backend = null;
@@ -245,7 +246,11 @@ async function renderEmpty(host) {
     host.append(el('p', {}, btn));
 }
 
-const LEGACY_MOUNT = { 'ground-lean': 'lean', 'ground-flat': 'flat', tree: 'hang', wall: 'hang' };
+// This used to be a second, private mount table -- and both halves of it were
+// a vocabulary nothing reads any more, so no key ever matched, every import
+// fell through to 'free', and a roped painting came back nailed flat.
+// normalizeMount already owns the real translation; defer to it rather than
+// keep a rival copy here that can rot independently of it.
 
 async function importLegacy(r) {
     const res = await fetch(`../${r.file}`);
@@ -258,11 +263,17 @@ async function importLegacy(r) {
         dimensions: { width: r.widthIn, height: r.heightIn, unit: 'in' },
         frame: r.frame, availability: 'available'
     }, processed, nextOrder(artworks));
-    // Transform copied exactly, so it renders where it always has.
+    // Transform copied exactly, so it renders where it always has -- and the
+    // opening-view flag with it, or a garden that opened on one painting
+    // quietly stops doing so the moment it is imported.
     await backend.updateArtwork(id, {
+        startHere: r.startHere === true,
         placement: {
-            placed: true, anchor: r.anchor || 'world', mount: LEGACY_MOUNT[r.mount] || 'free',
-            position: r.position || [0, 1.5, 0], rotation: r.rotation || [0, 0, 0], scale: r.scale || 1
+            placed: true, anchor: r.anchor || 'world', mount: normalizeMount(r.mount),
+            position: r.position || [0, 1.5, 0], rotation: r.rotation || [0, 0, 0], scale: r.scale || 1,
+            // Only a rope mount carries one, and it is what ties the painting
+            // to its branch; dropping it re-hangs the work at a default drop.
+            ...(r.rise !== undefined ? { rise: r.rise } : {})
         }
     });
 }

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import gsap from 'gsap';
-import { groundHeightAt } from '../scene/garden.js';
+import { groundHeightAt, isInPond } from '../scene/garden.js';
 
 // A literal average adult eye height (1.65) reads as crouched in a garden
 // scaled the way this one is -- the gulmohar alone is 11.5m tall, the grass
@@ -627,9 +627,32 @@ export class FPSNavigator {
         this.velocity.x += (targetVelX - this.velocity.x) * Math.min(1.0, accelRate * dt);
         this.velocity.z += (targetVelZ - this.velocity.z) * Math.min(1.0, accelRate * dt);
 
-        // Integrate horizontal position
+        // Integrate horizontal position, remembering where we came from so
+        // the pond can put us back: the basin is not a circle, so it cannot
+        // be one of the collider circles below, and a walker who is already
+        // in the water has nowhere sensible to be pushed to.
+        const prevX = this.position.x, prevZ = this.position.z;
         this.position.x += this.velocity.x * dt;
         this.position.z += this.velocity.z * dt;
+
+        // The waterline, tested against the baked terrain, so this follows
+        // the shore's real shape. Each axis is refused separately, so walking
+        // into the bank at an angle slides you along it instead of stopping
+        // you dead -- the same feel as the trunk circles.
+        if (isInPond(this.position.x, this.position.z)) {
+            if (!isInPond(prevX, this.position.z)) {
+                this.position.x = prevX;
+                this.velocity.x = 0;
+            } else if (!isInPond(this.position.x, prevZ)) {
+                this.position.z = prevZ;
+                this.velocity.z = 0;
+            } else {
+                this.position.x = prevX;
+                this.position.z = prevZ;
+                this.velocity.x = 0;
+                this.velocity.z = 0;
+            }
+        }
 
         // Soft circular boundary limit
         const distFromCenter = Math.hypot(this.position.x, this.position.z);

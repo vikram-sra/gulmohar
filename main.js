@@ -21,7 +21,7 @@ import {
 // SDK-free geometry (see its own header) -- fitting trunk circles once at
 // load, for collision, is the same one-time cost already paid here for the
 // rope mount's canopy data, just also keeping the trunk half of the result.
-import { fitSurfaces } from './src/place/surfaces.js';
+import { fitSurfaces, fitGazeboPosts } from './src/place/surfaces.js';
 import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 import { FPSNavigator } from './src/controls/fpsNavigator.js';
@@ -118,15 +118,25 @@ class GulmoharApp {
         this._contentReady = false;
         this._revealed = false;
 
-        // Both are dynamic imports, so a visitor who never arrives with one of
-        // these parameters downloads neither chunk -- and placement mode pulls
-        // the whole Firebase SDK with it, which is exactly what must never
-        // reach the visitor bundle. Verified by scripts/check-bundle.mjs.
+        // Placement mode is a dynamic import, so a visitor who never arrives
+        // with ?place downloads none of it -- and it pulls the whole Firebase
+        // SDK with it, which is exactly what must never reach the visitor
+        // bundle. Verified by scripts/check-bundle.mjs.
         const params = new URLSearchParams(location.search);
-        this.editMode = params.has('edit');
+        // ?edit was the old in-scene editor, whose idea of saving was to hand
+        // you a zip to unpack into the repo. The Studio replaced it. The URL
+        // is kept as a redirect rather than dropped, because it is the one
+        // the artist has bookmarked.
+        if (params.has('edit')) {
+            const q = new URLSearchParams(location.search);
+            q.delete('edit');
+            const rest = q.toString();
+            location.replace(`./studio/${rest ? `?${rest}` : ''}`);
+            return;
+        }
         this.placeArtworkId = params.get('place') || null;
-        if (this.editMode || this.placeArtworkId) {
-            document.title = this.placeArtworkId ? 'Gulmohar — place' : 'Gulmohar — edit';
+        if (this.placeArtworkId) {
+            document.title = 'Gulmohar — place';
             const meta = document.createElement('meta');
             meta.name = 'robots';
             meta.content = 'noindex';
@@ -278,8 +288,15 @@ class GulmoharApp {
         this.setupLighting();
         this.setupEnvironment();
         this.setupDustMotes();
-        this.createDock();
-        this._startClock();
+        // Placement mode brings its own controls -- mount options, size,
+        // rotate, Save -- and they are the only ones that mean anything while
+        // you are carrying a painting. Building the visitor dock as well put
+        // two control surfaces on screen at once, with the home orb sitting
+        // under the placement bar offering to fly the camera away mid-place.
+        if (!this.placeArtworkId) {
+            this.createDock();
+            this._startClock();
+        }
 
         // Seed the sky to the visitor's actual time of day; it drifts from there.
         const now = new Date();
@@ -677,7 +694,7 @@ class GulmoharApp {
         ground.receiveShadow = true;
         ground.renderOrder = 0;
         this.scene.add(ground);
-        this.groundMesh = ground;   // referenced by the editor for ground-mount raycasts
+        this.groundMesh = ground;   // placement mode raycasts it for ground mounts
 
         this.skySystem = createTorontoSkySystem(1800, QUALITY.skySegW, QUALITY.skySegH);
         this.scene.add(this.skySystem.skyRoot);
@@ -765,10 +782,19 @@ class GulmoharApp {
             });
             this.scene.add(this.lawnPlants);
 
-            // Trunks become simple collision circles -- so a garden you can
-            // hang a painting on the bark of is also one you cannot walk
-            // straight through. Gazebo posts and the pond aren't covered yet.
-            const trunkColliders = fitSurfaces(garden.group).trunks;
+            // Trunks and the pavilion's posts become simple collision
+            // circles -- so a garden you can hang a painting on the bark of
+            // is also one you cannot walk straight through. The posts are
+            // found by sweeping for them, so the entrance stays open without
+            // anyone typing an angle. (The pond is not a circle and is
+            // handled by the navigator's own waterline test instead.)
+            const trunkColliders = [
+                // collisionRadius, not radius: see surfaces.js. The radius a
+                // painting hangs on is the clean central cylinder; the one a
+                // walker is stopped by has to cover the whole trunk mass.
+                ...fitSurfaces(garden.group).trunks.map((t) => ({ ...t, radius: t.collisionRadius || t.radius })),
+                ...fitGazeboPosts(garden.group, GARDEN_POINTS.GAZEBO)
+            ];
             this.fpsNavigator.setColliders(trunkColliders);
 
             // Paintings: a 404 on paintings.json resolves to an empty list
@@ -811,9 +837,6 @@ class GulmoharApp {
                 this.renderer.shadowMap.needsUpdate = true;
                 this._maybeStartIntro();
 
-                if (this.editMode) {
-                    import('./src/edit/editor.js').then(({ attachEditor }) => attachEditor(this));
-                }
                 if (this.placeArtworkId) {
                     import('./src/place/placeMode.js')
                         .then(({ attachPlaceMode }) => attachPlaceMode(this, this.placeArtworkId))
