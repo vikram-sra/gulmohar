@@ -125,6 +125,13 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _hoverWorld = new THREE.Vector3();
 const _markerWorld = new THREE.Vector3();
 const _occludeTo = new THREE.Vector3();
+const _dofRest = new THREE.Vector3();
+// Roughly the middle of the gulmohar's canopy -- the depth the opening view
+// should resolve on, not the ground beneath it.
+const GULMOHAR_FOCUS_Y = 5.0;
+// How often the shadow map is re-rendered purely to keep leaf shadows moving
+// with the canopy. Slow on purpose -- see the gate in animate().
+const WIND_SHADOW_MS = 110;
 const _occludeDir = new THREE.Vector3();
 // Distance at which the hover ring is drawn at its authored size; nearer
 // grows it, further shrinks it.
@@ -2389,7 +2396,18 @@ class GulmoharApp {
         const sunMoved = Math.abs(this.sunAngle - (this._lastShadowAngle ?? 1e9)) > 1e-5;
         // A painting that has swung to follow the viewer is the other thing
         // that can invalidate the map while the sun sits still.
+        // Wind is the third thing that invalidates the map, and unlike the
+        // sun it never stops -- so it gets its own, much slower cadence
+        // rather than riding the tier's. At the top tier that cadence is
+        // every frame, and re-rendering the whole shadow pass sixty times a
+        // second to animate leaf shadows is not a trade worth making; ~9Hz
+        // reads as the same shimmer for a sixth of the cost. Top tier only,
+        // because on a machine that picked low or medium this is exactly the
+        // kind of luxury that should not be spent.
+        const windShadowDue = QUALITY.windShadows
+            && (nowMs - (this._lastShadowMs ?? 0)) > WIND_SHADOW_MS;
         const shadowFrame = (shadowDue && (sunMoved || this._paintingsTurned))
+            || windShadowDue
             || castingKey !== this._lastCastingKey;
         if (shadowFrame) {
             this._lastShadowMs = nowMs;
@@ -2546,9 +2564,23 @@ class GulmoharApp {
             // reads as "no pointer" here and falls back to the screen centre.
             if (!uv) {
                 const px = this.pointer.x, py = this.pointer.y;
-                uv = (px >= -1 && px <= 1 && py >= -1 && py <= 1)
-                    ? [px * 0.5 + 0.5, py * 0.5 + 0.5]
-                    : [0.5, 0.5];
+                if (px >= -1 && px <= 1 && py >= -1 && py <= 1) {
+                    uv = [px * 0.5 + 0.5, py * 0.5 + 0.5];
+                } else {
+                    // No pointer -- before the first mouse move, and on touch
+                    // between taps. Falling back to the screen centre focused
+                    // on whatever geometry happened to sit at the crosshair,
+                    // which in the opening view is the lawn under the canopy,
+                    // leaving the tree the whole shot is built around soft.
+                    // Focus the centrepiece instead: it is the subject until
+                    // the visitor says otherwise, and the moment they move the
+                    // pointer the branch above takes over again.
+                    _dofRest.set(GARDEN_POINTS.GULMOHAR.x, GULMOHAR_FOCUS_Y, GARDEN_POINTS.GULMOHAR.z)
+                        .project(this.camera);
+                    uv = (_dofRest.z < 1 && Math.abs(_dofRest.x) <= 1 && Math.abs(_dofRest.y) <= 1)
+                        ? [_dofRest.x * 0.5 + 0.5, _dofRest.y * 0.5 + 0.5]
+                        : [0.5, 0.5];
+                }
             }
             this.dofPass.pointerUV.set(uv[0], uv[1]);
         }

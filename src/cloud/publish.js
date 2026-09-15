@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, toPublicArtwork, hashPublic } from './schema.js';
+import { SCHEMA_VERSION, toPublicArtwork, hashPublic, toPublicAbout, ABOUT_ID } from './schema.js';
 import { purgeArtwork } from './artworks.js';
 
 export function publicArtworks(backend, artworks) {
@@ -9,6 +9,9 @@ export function publicArtworks(backend, artworks) {
 // needs an image path or a status filter the way a painting does.
 export function publicLandmarks(landmarks) {
     return (landmarks || [])
+        // The About document shares this store but is not a garden fixture,
+        // and has no business in the list the 3D scene reads for hover names.
+        .filter((l) => l.id !== ABOUT_ID)
         .filter((l) => l.title || l.meta)
         .map((l) => ({ id: l.id, title: l.title || '', meta: l.meta || '' }));
 }
@@ -32,7 +35,8 @@ export async function publish(backend, artworks, landmarks, published, onStep = 
     const publishedAt = new Date().toISOString();
     const gallery = {
         schemaVersion: SCHEMA_VERSION, revision, publishedAt,
-        artworks: pubs, landmarks: publicLandmarks(landmarks)
+        artworks: pubs, landmarks: publicLandmarks(landmarks),
+        about: toPublicAbout(landmarks)
     };
     await backend.putGallery(JSON.stringify(gallery), revision);
 

@@ -82,3 +82,15 @@ footer.site {
   margin-top: clamp(56px, 9vw, 96px); padding-top: 22px;
   border-top: 1px solid var(--rule); color: var(--muted); font-size: .86rem;
 }
+
+/* The artist's own way in. Quiet -- it is on their page, not the visitor's
+   path through the site -- but not hidden, because "where do I edit this"
+   should have an answer on the page being edited. */
+.studio-link {
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(37, 50, 38, 0.12);
+  font-size: 0.86rem;
+}
+.studio-link a { color: var(--ink-soft, #5C6C58); }
+.studio-link a:hover { color: var(--gulmohar, #D9502F); }

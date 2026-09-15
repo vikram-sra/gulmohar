@@ -2,10 +2,11 @@ import './studio.css';
 import { el, toast, confirmDialog } from './dom.js';
 import { createGrid } from './grid.js';
 import { createGardenSection } from './gardenSection.js';
+import { createAboutSection } from './aboutSection.js';
 import { createUploadSection } from './upload.js';
 import { openEditDialog } from './detail.js';
 import { getBackend } from '../cloud/backend.js';
-import { toPublicArtwork, hashPublic, pendingChanges } from '../cloud/schema.js';
+import { toPublicArtwork, hashPublic, pendingChanges, ABOUT_ID } from '../cloud/schema.js';
 import {
     uploadNewArtwork, replaceArtworkImage, trashArtwork, reorderArtworks, nextOrder,
     setStartHere, clearStartHere
@@ -88,6 +89,7 @@ function buildApp() {
     const empty = el('div', { class: 'empty', hidden: true });
     const uploadHost = el('div');
     const gardenHost = el('div');
+    const aboutHost = el('div');
 
     root.replaceChildren(
         header(chip, publishBtn, moreBtn),
@@ -100,9 +102,18 @@ function buildApp() {
                 el('h2', { id: 'h-garden', text: 'Garden artifacts' }),
                 el('span', { class: 'count', text: 'The trees, the pavilion, the pond' })),
             gardenHost),
+        el('section', { 'aria-labelledby': 'h-about' },
+            el('div', { class: 'section-head' },
+                el('h2', { id: 'h-about', text: 'About page' }),
+                el('span', { class: 'section-note', text: 'Statement, biography, exhibitions' })),
+            aboutHost),
         el('section', { 'aria-labelledby': 'h-add' },
             el('div', { class: 'section-head' }, el('h2', { id: 'h-add', text: 'Add a painting' })),
             uploadHost));
+
+    const about = createAboutSection(aboutHost, {
+        onSave: (patch) => backend.updateLandmark(ABOUT_ID, patch)
+    });
 
     const garden = createGardenSection(gardenHost, {
         onSave: (id, patch) => backend.updateLandmark(id, patch)
@@ -170,7 +181,11 @@ function buildApp() {
         artworks = list;
         setSync(meta.pending ? 'saving' : onlineState());
     }, (err) => toast(`Sync error: ${err.message}`, { error: true, ms: 6000 }));
-    backend.watchLandmarks((list) => { landmarks = list; garden.update(landmarks); },
+    backend.watchLandmarks((list) => {
+            landmarks = list;
+            garden.update(landmarks);
+            about.update(landmarks.find((l) => l.id === ABOUT_ID) || null);
+        },
         (err) => toast(`Sync error: ${err.message}`, { error: true, ms: 6000 }));
     backend.watchPublished((p) => { published = p; render(); });
 

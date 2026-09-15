@@ -13,6 +13,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400&family=Outfit:wght@300;400;500&display=swap">
   <link rel="stylesheet" href="../page.css">
+  <script type="module" src="../src/about/main.js"></script>
 </head>
 <body>
   <div class="wrap">
@@ -26,29 +27,36 @@
     </header>
 
     <h1>Gulmohar</h1>
-    <p class="lede measure">Artist bio.</p>
+    <p class="lede measure" data-about="lede">Artist bio.</p>
 
     <div class="measure">
       <h2>Statement</h2>
-      <div class="empty">
+      <div class="empty" data-about="statement">
         <p>Not written yet.</p>
       </div>
 
       <h2>Biography</h2>
-      <div class="empty">
+      <div class="empty" data-about="biography">
         <p>Not written yet.</p>
       </div>
 
       <h2>Exhibitions</h2>
-      <div class="empty">
+      <div class="empty" data-about="exhibitions">
         <p>No exhibitions listed yet.</p>
       </div>
 
       <h2>Contact</h2>
-      <div class="empty">
+      <div class="empty" data-about="contact">
         <p>No contact details yet.</p>
       </div>
     </div>
+
+    <!-- The way in for the artist. Unlinked from everywhere else on purpose
+         (the Studio is meant to be unlisted), but this is the artist's own
+         page and the one they land on looking for "where do I edit this". -->
+    <p class="measure studio-link">
+      <a href="../studio/">Edit this page and upload paintings &rarr;</a>
+    </p>
 
     <footer class="site">
       <p>Gulmohar &middot; <a href="../">Return to the scene</a></p>

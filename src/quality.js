@@ -30,7 +30,7 @@ const TIERS = {
         // Off entirely: it is a full-screen extra pass plus a depth texture
         // attachment on both ping-pong targets, and the phones this tier
         // targets are exactly the fill-rate-limited devices that cost hurts.
-        dofTaps: 0, dofMaxBlurPx: 0
+        dofTaps: 0, dofMaxBlurPx: 0, windShadows: false
     },
     medium: {
         floorLeafCount: 24, microPlantCount: 34,
@@ -40,7 +40,7 @@ const TIERS = {
         pixelRatioCap: 1.25, antialias: false, anisotropy: 4, maxTextureSize: 1024,
         canopySide: THREE.DoubleSide,
         skySegW: 24, skySegH: 16, dustCount: 60,
-        dofTaps: 8, dofMaxBlurPx: 2.0
+        dofTaps: 8, dofMaxBlurPx: 2.0, windShadows: false
     },
     high: {
         floorLeafCount: 45, microPlantCount: 60,
@@ -54,7 +54,7 @@ const TIERS = {
         pixelRatioCap: 1.5, antialias: true, anisotropy: 8, maxTextureSize: 4096,
         canopySide: THREE.DoubleSide,
         skySegW: 32, skySegH: 24, dustCount: 100,
-        dofTaps: 12, dofMaxBlurPx: 2.6
+        dofTaps: 12, dofMaxBlurPx: 2.6, windShadows: true
     }
 };
 

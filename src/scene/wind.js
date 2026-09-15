@@ -151,6 +151,25 @@ uniform float uWindStrength;
         : inject;
     material.needsUpdate = true;
 
+    // The shadow pass does not use this material -- it renders the scene again
+    // through a depth material, which knows nothing about the displacement
+    // above. So a canopy that swayed cast a shadow that did not: the leaves
+    // moved and their shadows sat perfectly still underneath them. Give the
+    // depth material the same injection and the two agree.
+    //
+    // Its own cache key, or Three hands it the lit material's compiled program
+    // and the shadow renders as a lit surface.
+    const depth = mesh.customDepthMaterial;
+    if (depth && !depth.userData.__windInjected) {
+        depth.userData.__windInjected = true;
+        depth.customProgramCacheKey = () => `${cacheKey}_depth`;
+        const preDepth = depth.onBeforeCompile || null;
+        depth.onBeforeCompile = preDepth
+            ? function (shader, renderer) { preDepth.call(this, shader, renderer); inject(shader, renderer); }
+            : inject;
+        depth.needsUpdate = true;
+    }
+
     // The depth pass deliberately does NOT get the wind: shadow map caching
     // requires static caster positions to prevent 12Hz shadow strobing.
 }

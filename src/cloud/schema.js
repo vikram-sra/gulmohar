@@ -5,6 +5,34 @@ import { toInches, DEFAULT_FRAME } from '../frames.js';
 
 export const SCHEMA_VERSION = 1;
 
+// The About page's prose, stored as one document alongside the garden's
+// landmarks -- same store, same live-sync, same publish step. It is a
+// landmark in the only sense that matters here: a named thing the artist
+// writes copy for, with no image and no placement.
+export const ABOUT_ID = 'about';
+export const ABOUT_FIELDS = [
+    { key: 'lede', label: 'Short intro', rows: 2,
+      hint: 'One or two lines, under the page title.' },
+    { key: 'statement', label: 'Statement', rows: 7 },
+    { key: 'biography', label: 'Biography', rows: 7 },
+    { key: 'exhibitions', label: 'Exhibitions', rows: 7,
+      hint: 'One per line — year, title, venue.' },
+    { key: 'contact', label: 'Contact', rows: 3 }
+];
+
+/** The About document as the public page reads it, or null if nothing written. */
+export function toPublicAbout(landmarks) {
+    const doc = (landmarks || []).find((l) => l.id === ABOUT_ID);
+    if (!doc) return null;
+    const out = {};
+    let any = false;
+    for (const { key } of ABOUT_FIELDS) {
+        const v = typeof doc[key] === 'string' ? doc[key].trim() : '';
+        if (v) { out[key] = v; any = true; }
+    }
+    return any ? out : null;
+}
+
 export function dimensionsInInches(dimensions) {
     const d = dimensions || {};
     return {
