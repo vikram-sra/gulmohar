@@ -106,7 +106,7 @@ const ORBIT_MIN_DISTANCE = 6.0;
 // arrangement that put each of them where it belonged in frame.
 const HOME_VIEW = {
     pos: { x: 45.9, y: 25.0, z: 14.0 },
-    look: { x: 0, y: 2.0, z: 0 }
+    look: { x: 0, y: 1.2, z: 0 }
 };
 // How far above the ground the orbit camera must stay. Low enough to look up
 // a trunk from its base, high enough to keep the near plane out of the soil.
@@ -267,7 +267,17 @@ class GulmoharApp {
         // A failed asset must not leave the loader up forever; the tree module
         // substitutes a procedural stand-in and the scene carries on.
         this.loadingManager.onError = () => this.revealScene();
-        setTimeout(() => this.revealScene(), 12000);   // last-resort backstop
+        // Drive the loading bar with real progress instead of a looping
+        // animation.  The bar element's width is set directly; CSS handles
+        // the smooth transition.
+        this.loadingManager.onProgress = (_url, loaded, total) => {
+            const bar = document.querySelector('#loader .bar i');
+            if (bar) {
+                bar.style.animation = 'none';
+                bar.style.width = `${Math.min(100, (loaded / total) * 100)}%`;
+            }
+        };
+        setTimeout(() => this.revealScene(), 8000);   // last-resort backstop
     }
 
     revealScene() {
@@ -299,8 +309,8 @@ class GulmoharApp {
         this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.4, 6000);
         this.camera.fov = this._fovForAspect(window.innerWidth / window.innerHeight);
         this.camera.updateProjectionMatrix();
-        this.camera.position.set(12.8, 3.2, 11.2);
-        this.camera.lookAt(0, 2.8, 0);
+        this.camera.position.set(HOME_VIEW.pos.x * 1.05, HOME_VIEW.pos.y + 2.5, HOME_VIEW.pos.z * 1.05);
+        this.camera.lookAt(HOME_VIEW.look.x, HOME_VIEW.look.y, HOME_VIEW.look.z);
 
         this.renderer = new THREE.WebGLRenderer({
             antialias: QUALITY.antialias,   // MSAA plus a composer is heavy bandwidth on phones
@@ -366,7 +376,7 @@ class GulmoharApp {
         this.composer.addPass(new OutputPass());
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
-        this.controls.target.set(0, 2.8, 0);
+        this.controls.target.set(HOME_VIEW.look.x, HOME_VIEW.look.y, HOME_VIEW.look.z);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.minDistance = ORBIT_MIN_DISTANCE;
@@ -908,6 +918,51 @@ class GulmoharApp {
         this.skySystem = createTorontoSkySystem(1800, QUALITY.skySegW, QUALITY.skySegH,
             (t) => downscaleTexture(t, QUALITY.maxTextureSize));
         this.scene.add(this.skySystem.skyRoot);
+
+        // Horizon-fill disc: a large opaque plane just below the garden that
+        // renders the atmosphere's own horizon colour in every direction.
+        // Without this, zooming out past the garden's soft alpha edge reveals
+        // the raw lower hemisphere of the sky dome -- a flat teal void that
+        // reads as negative space.  This disc sits between the garden and the
+        // dome (renderOrder -1) and samples the same atmosphere LUT the
+        // ground's own edge fade uses, so it matches the sky seamlessly at
+        // every time of day.
+        {
+            const fillGeo = new THREE.PlaneGeometry(3200, 3200);
+            fillGeo.rotateX(-Math.PI / 2);
+            const fillMat = new THREE.ShaderMaterial({
+                uniforms: { ...this.skySystem.atmosphere.uniforms },
+                vertexShader: `
+                    varying vec3 vWorldPos;
+                    void main() {
+                        vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+                        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    varying vec3 vWorldPos;
+                    ${SKY_LOOKUP_GLSL}
+                    void main() {
+                        // Use the real camera-to-fragment direction -- exactly
+                        // what the sky dome would draw behind this pixel, and
+                        // the same vector the ground's own edge fade uses, so
+                        // the two meet without a seam.  cameraPosition is a
+                        // built-in uniform that Three.js provides to every
+                        // ShaderMaterial.
+                        vec3 dir = normalize(vWorldPos - cameraPosition);
+                        gl_FragColor = vec4(atmosphereColor(dir), 1.0);
+                    }
+                `,
+                side: THREE.FrontSide,
+                depthWrite: false,
+                fog: false
+            });
+            const fillDisc = new THREE.Mesh(fillGeo, fillMat);
+            fillDisc.position.y = -0.15;
+            fillDisc.renderOrder = -1;
+            fillDisc.frustumCulled = false;
+            this.scene.add(fillDisc);
+        }
 
         // A baked top-down photograph of the ground, not the photogrammetry
         // scan's own texture tiled directly. That texture is a UV atlas --

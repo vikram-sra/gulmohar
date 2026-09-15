@@ -549,7 +549,8 @@
     }
     #loader .bar { width: 120px; height: 1px; background: rgba(37,50,38,0.14); overflow: hidden; }
     #loader .bar i { display: block; height: 100%; width: 40%; background: var(--gulmohar);
-                     animation: slide 1.4s ease-in-out infinite; }
+                     animation: slide 1.4s ease-in-out infinite;
+                     transition: width 0.4s ease; }
     @keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
 
     @media (max-width: 600px) {
