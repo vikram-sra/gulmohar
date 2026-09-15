@@ -952,12 +952,21 @@ class GulmoharApp {
             const meadowTints = [0xb9c48a, 0xa6b878, 0xc8c894, 0x98ae6c].map((h) => new THREE.Color(h));
             this.meadowRim = createGrassField(garden.meadowClumps, QUALITY.grassRadius + 1, QUALITY.vegClumpCount * 7, {
                 filter: /rostlinka_07c/, innerR: 30, targetHeight: 0.62, clearMargin: 0.5,
+                // Deeper than the default. These are the tall arching clumps,
+                // and their blades splay outward from a wide base, so the
+                // lowest vertex the card is aligned on sits well below where
+                // the visible mass starts -- at a tenth of their height they
+                // read as set down on the grass rather than growing out of it.
+                sink: 0.24,
                 name: 'MeadowRim', tints: meadowTints, seed: 71
             });
             this.scene.add(this.meadowRim);
             this.meadowPond = createGrassField(garden.meadowClumps, POND_EXTENT, QUALITY.vegClumpCount * 4, {
                 filter: /rostlinka_07c/, center: GARDEN_POINTS.POND, targetHeight: 0.72,
                 accept: (x, z) => groundHeightAt(x, z) < POND_WATER_Y + 0.42,
+                // Same species, same reason, and the bank's slope on top of
+                // it -- these are the ones that showed daylight underneath.
+                sink: 0.26,
                 name: 'MeadowPondMargin', tints: meadowTints, seed: 72
             });
             this.scene.add(this.meadowPond);
@@ -1362,16 +1371,17 @@ class GulmoharApp {
     /**
      * Projects every marker onto the screen, once a frame.
      *
-     * Hidden wholesale while something is selected: once you are looking at a
-     * painting, every other marker on screen is an invitation to stop looking
-     * at it. Also hidden mid-drag, where a dozen rings sliding around are
-     * just noise.
+     * The selected object's own marker is hidden -- you are already looking
+     * at it, and its ring would sit on top of the thing it points to. Every
+     * other marker stays up, because those are still the places you can go
+     * next. The whole set hides mid-drag, where a dozen rings sliding around
+     * are just noise, and in walk mode, which has its own way of moving.
      */
     _trackNavMarkers() {
         const host = this._navMarkersEl;
         if (!host || !this._navMarkers.length) return;
 
-        const hide = !!this._labelAnchor || this._dragging || this.navMode === 'walk';
+        const hide = this._dragging || this.navMode === 'walk';
         if (hide !== this._markersHidden) {
             this._markersHidden = hide;
             host.classList.toggle('markers-hidden', hide);
@@ -1389,9 +1399,17 @@ class GulmoharApp {
             // Off-screen markers are faded rather than removed: toggling
             // display on a dozen elements as the garden turns thrashes
             // layout, and opacity is composited.
-            const off = behind || x < -80 || x > vw + 80 || y < -80 || y > vh + 80;
+            const selected = this._labelAnchor === m.object;
+            const off = selected || behind
+                || x < -80 || x > vw + 80 || y < -80 || y > vh + 80;
             const fade = off ? '0' : '1';
-            if (m.fade !== fade) { m.fade = fade; m.btn.style.setProperty('--m-fade', fade); }
+            if (m.fade !== fade) {
+                m.fade = fade;
+                m.btn.style.setProperty('--m-fade', fade);
+                // A faded marker must not still be clickable, or there is an
+                // invisible button sitting over the painting you are looking at.
+                m.btn.style.pointerEvents = off ? 'none' : 'auto';
+            }
             if (off) continue;
             const scale = THREE.MathUtils.clamp(MARKER_REF_DIST_M / Math.max(dist, 0.5),
                 MARKER_MIN_SCALE, MARKER_MAX_SCALE);
