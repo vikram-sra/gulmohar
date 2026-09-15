@@ -156,7 +156,11 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
         innerR = 0,           // scatter in a ring rather than the full disc
         center = null,        // { x, z }: scatter around this instead of the origin
         accept = null,        // (x, z) => bool, on top of isGroundClear
-        tints = TINT, seed = 20260906
+        tints = TINT, seed = 20260906,
+        // How far to bury a tuft, as a fraction of its own height. A card
+        // whose base sits exactly on the ground shows daylight under it the
+        // moment the terrain is not perfectly flat.
+        sink = 0.10
     } = opts;
     const group = new THREE.Group();
     group.name = name;
@@ -191,6 +195,8 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
 
         const localH = Math.max(geometry.boundingBox.max.y, 1e-4);
         const cardScale = targetHeight / localH;
+        // Roughly the tuft's own horizontal reach, for the ground probes below.
+        const probeR = Math.max(0.10, targetHeight * 0.45);
 
         const material = card.material.clone();
         material.side = THREE.DoubleSide;      // crossed quads, read from every angle
@@ -218,7 +224,20 @@ export function createGrassField(cardsGltf, outerR = 41, count = 14000, opts = {
             if (!isGroundClear(x, z, clearMargin)) continue;
             if (accept && !accept(x, z)) continue;
 
-            dummy.position.set(x, groundHeightAt(x, z), z);
+            // Plant against the LOWEST ground the tuft covers, not the height
+            // at its centre. A clump is a wide cluster of cards; on the pond's
+            // banks the centre sample sat well above the ground under its
+            // downhill edge, and the whole tuft floated. Four probes at its
+            // own footprint radius is enough to find the low side.
+            const hc = groundHeightAt(x, z);
+            let hLow = hc;
+            for (let q = 0; q < 4; q++) {
+                const px = x + (q === 0 ? probeR : q === 1 ? -probeR : 0);
+                const pz = z + (q === 2 ? probeR : q === 3 ? -probeR : 0);
+                const ph = groundHeightAt(px, pz);
+                if (ph < hLow) hLow = ph;
+            }
+            dummy.position.set(x, hLow - targetHeight * sink, z);
             dummy.rotation.set(0, rand() * Math.PI * 2, 0);
             const s = cardScale * (1.10 + rand() * 0.40);
             dummy.scale.set(s * (1.12 + rand() * 0.20), s, s * (1.12 + rand() * 0.20));

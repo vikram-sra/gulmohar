@@ -79,7 +79,7 @@ export function calculateTorontoSunMoon(timeAngle, radius = 1600) {
 /**
  * Creates the Toronto celestial sky system with the real ESO all-sky panorama skydome
  */
-export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
+export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24, onDownscale = null) {
     const skyRoot = new THREE.Group();
     skyRoot.name = "TorontoSkySystem";
 
@@ -151,7 +151,11 @@ export function createTorontoSkySystem(radius = 1800, segW = 32, segH = 24) {
     celestialGroup.name = "TorontoCelestialGroup";
 
     const textureLoader = new THREE.TextureLoader();
-    const esoMwTexture = textureLoader.load(getAssetUrl('textures/milkyway.jpg'));
+    // The panorama is the single largest texture in the scene and is only
+    // ever seen after dusk, so it is the first thing worth shrinking when
+    // memory is tight. onDownscale is main.js's tier-aware capper.
+    const esoMwTexture = textureLoader.load(getAssetUrl('textures/milkyway.jpg'),
+        (t) => { if (typeof onDownscale === 'function') onDownscale(t); });
     esoMwTexture.wrapS = THREE.RepeatWrapping;
     esoMwTexture.wrapT = THREE.ClampToEdgeWrapping;
     esoMwTexture.minFilter = THREE.LinearFilter;

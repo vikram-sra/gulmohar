@@ -24,7 +24,7 @@ const TIERS = {
         grassCount: 18000, grassRadius: 36, backgroundTrees: 2, vegClumpCount: 20, denseGrassCount: 6,
         shadowMapSize: 1024, shadowIntervalMs: 45, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.0, foliageReceiveShadow: false,
-        pixelRatioCap: 1.0, antialias: false, anisotropy: 2,
+        pixelRatioCap: 1.0, antialias: false, anisotropy: 2, maxTextureSize: 512,
         canopySide: THREE.DoubleSide,
         skySegW: 16, skySegH: 12, dustCount: 0,
         // Off entirely: it is a full-screen extra pass plus a depth texture
@@ -37,7 +37,7 @@ const TIERS = {
         grassCount: 32000, grassRadius: 41, backgroundTrees: 2, vegClumpCount: 40, denseGrassCount: 12,
         shadowMapSize: 2048, shadowIntervalMs: 28, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.4, foliageReceiveShadow: true,
-        pixelRatioCap: 1.25, antialias: false, anisotropy: 4,
+        pixelRatioCap: 1.25, antialias: false, anisotropy: 4, maxTextureSize: 1024,
         canopySide: THREE.DoubleSide,
         skySegW: 24, skySegH: 16, dustCount: 60,
         dofTaps: 8, dofMaxBlurPx: 2.0
@@ -51,7 +51,7 @@ const TIERS = {
         // without pixel-stair artifacts or the fallback to basic 1-tap shadows.
         shadowMapSize: 2048, shadowIntervalMs: 0, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.8, foliageReceiveShadow: true,
-        pixelRatioCap: 1.5, antialias: true, anisotropy: 8,
+        pixelRatioCap: 1.5, antialias: true, anisotropy: 8, maxTextureSize: 4096,
         canopySide: THREE.DoubleSide,
         skySegW: 32, skySegH: 24, dustCount: 100,
         dofTaps: 12, dofMaxBlurPx: 2.6

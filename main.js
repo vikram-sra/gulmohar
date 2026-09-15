@@ -96,6 +96,77 @@ const WALK_UI_HIDE_MS = 3200;
 // and anything that moves the focus elsewhere puts it back.
 const ORBIT_MIN_DISTANCE = 6.0;
 
+// Two-finger horizontal swipe -> turn. How much more horizontal than vertical
+// a wheel event must be before it counts as a turn rather than a dolly: a
+// trackpad swipe is never perfectly axis-aligned, and a ratio of 1.2 ignores
+// the small deltaX that rides along with an ordinary vertical scroll.
+const WHEEL_PAN_RATIO = 1.2;
+// Radians per pixel of horizontal wheel delta. Tuned so a full swipe across
+// the pad turns roughly a quarter circle -- about what the same gesture does
+// dragging.
+const WHEEL_PAN_RAD_PER_PX = 0.0042;
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
+const _hoverWorld = new THREE.Vector3();
+
+/**
+ * Shrinks a texture in place to `max` on its longest side, before it is ever
+ * uploaded to the GPU.
+ *
+ * The models ship textures sized for a render, not for a browser: measured on
+ * the garden, the GLB textures alone come to ~177MB of VRAM once mipmapped,
+ * across 74 textures, with the largest a 1536-square at 12MB on its own. That
+ * is the number that decides whether a low-RAM Windows laptop with shared
+ * integrated graphics can hold the scene at all -- triangles are not the
+ * problem here (the whole garden draws ~740k, and the lawn's draw-range LOD
+ * already handles the bulk of those).
+ *
+ * Halving repeatedly rather than scaling straight to the target: a box filter
+ * down one power of two at a time is what the mip chain does anyway, and it
+ * keeps foliage alpha from turning to mush the way one big downsample does.
+ */
+function downscaleTexture(tex, max) {
+    const img = tex.image;
+    if (!max || !img) return;
+    let w = img.width, h = img.height;
+    if (!w || !h || Math.max(w, h) <= max) return;
+    // Nothing to draw from: compressed and data textures have no drawable
+    // image, and canvas cannot resize them.
+    if (typeof HTMLCanvasElement === 'undefined') return;
+    if (!(img instanceof HTMLImageElement || img instanceof HTMLCanvasElement
+        || (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap))) return;
+
+    let canvas = null;
+    try {
+        let src = img;
+        while (Math.max(w, h) > max) {
+            const nw = Math.max(1, Math.round(w / 2));
+            const nh = Math.max(1, Math.round(h / 2));
+            const next = document.createElement('canvas');
+            next.width = nw;
+            next.height = nh;
+            const ctx = next.getContext('2d');
+            if (!ctx) return;
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.drawImage(src, 0, 0, nw, nh);
+            if (canvas) canvas.width = canvas.height = 0;   // release the step we just consumed
+            canvas = next;
+            src = next;
+            w = nw;
+            h = nh;
+        }
+    } catch {
+        return;   // tainted canvas or an unreadable source: leave it as it was
+    }
+    if (!canvas) return;
+    // The decoded original is no longer referenced by anything once the
+    // texture points at the canvas; closing it hands the memory back now
+    // rather than at the next GC.
+    if (typeof ImageBitmap !== 'undefined' && img instanceof ImageBitmap) img.close?.();
+    tex.image = canvas;
+    tex.needsUpdate = true;
+}
+
 class GulmoharApp {
     constructor() {
         this.container = document.getElementById('app');
@@ -105,14 +176,18 @@ class GulmoharApp {
 
         this.elapsed = 0;
         this.sunAngle = 0;
-        this.daySpeed = AMBIENT_DAY_SPEED;
-        this.motionPaused = false;
+        this.daySpeed = 0;
+        this.motionPaused = true;
         this.uiVisible = true;
 
         this._hoverTargets = [];
         this._pickGroups = [];
         this._hoverOwner = new Map();
         this.hovered = null;
+        this._hoverAnchor = null;
+        this._hoverLabelX = 0;
+        this._hoverLabelEl = null;
+        this._hoverPlateEl = null;
         this._hoverDirty = false;
         this._introStarted = false;
         this._contentReady = false;
@@ -283,6 +358,46 @@ class GulmoharApp {
             }, 2500);
         });
 
+        // A two-finger horizontal swipe on a trackpad should turn the garden.
+        // It arrives as a wheel event carrying deltaX, which OrbitControls
+        // ignores entirely -- it reads deltaY and dollies. So a horizontal
+        // swipe did nothing, and the only way to turn without a mouse was
+        // three-finger drag, which is an OS accessibility setting most people
+        // never switch on.
+        //
+        // Capture phase, so the decision is made before OrbitControls' own
+        // wheel listener sees the event: a clearly horizontal gesture is
+        // taken as a turn and stopped here, and everything else falls through
+        // to the dolly untouched. The ratio test is what keeps a slightly
+        // skewed vertical scroll from being read as a turn.
+        this.renderer.domElement.addEventListener('wheel', (e) => {
+            if (this.navMode === 'walk') return;
+            if (Math.abs(e.deltaX) <= Math.abs(e.deltaY) * WHEEL_PAN_RATIO) return;
+            e.preventDefault();
+            e.stopPropagation();
+            this._orbitAzimuth(-e.deltaX * WHEEL_PAN_RAD_PER_PX);
+        }, { passive: false, capture: true });
+
+        // Cursor feedback for the drag. The scene reads as a thing you take
+        // hold of and turn, and a crosshair says "aim" rather than "grab".
+        const dom = this.renderer.domElement;
+        dom.addEventListener('pointerdown', () => {
+            // Walk mode owns the pointer (it locks it), so leave the cursor
+            // alone there -- this is orbit's "take hold of the garden".
+            if (this.navMode === 'walk') return;
+            this._dragging = true;
+            document.body.style.cursor = 'grabbing';
+        });
+        const endDrag = () => {
+            if (!this._dragging) return;
+            this._dragging = false;
+            // Back to whatever hovering says it should be, not a fixed value:
+            // releasing over a painting should leave the pointer cursor up.
+            document.body.style.cursor = this.hovered ? 'pointer' : 'grab';
+        };
+        window.addEventListener('pointerup', endDrag);
+        window.addEventListener('pointercancel', endDrag);
+
         this.scene.fog = new THREE.FogExp2(0x8ec2ec, 0.0018);   // light atmospheric depth without milky white washout
 
         this.setupLighting();
@@ -293,14 +408,20 @@ class GulmoharApp {
         // you are carrying a painting. Building the visitor dock as well put
         // two control surfaces on screen at once, with the home orb sitting
         // under the placement bar offering to fly the camera away mid-place.
+        this._hoverLabelEl = document.getElementById('hover-label');
+        this._hoverPlateEl = this._hoverLabelEl && this._hoverLabelEl.querySelector('.hl-plate');
         if (!this.placeArtworkId) {
             this.createDock();
             this._startClock();
         }
 
-        // Seed the sky to the visitor's actual time of day; it drifts from there.
-        const now = new Date();
-        this.sunAngle = (((now.getHours() + now.getMinutes() / 60) - 6) / 24) * Math.PI * 2;
+        // Open at midday, still. This used to seed from the visitor's own
+        // clock and drift from there, which meant a good half of arrivals
+        // landed on a dark garden -- the work is unlit, the colour is gone,
+        // and nothing says the sky is on a dial you control. Noon shows the
+        // garden as it was built to look; Day/Night and the motion button are
+        // right there for anyone who wants it moving.
+        this.sunAngle = Math.PI / 2;
 
         let resizeTimer;
         window.addEventListener('resize', () => {
@@ -522,6 +643,40 @@ class GulmoharApp {
     // A tiled ground plane seen at a grazing angle is exactly what anisotropic
     // filtering is for, and nothing in this project was setting it. Capped at 8:
     // past that the returns are invisible and some drivers get expensive.
+    /**
+     * Caps the scene's textures to the tier's ceiling, once. Cheap -- only
+     * the ones actually over the limit are redrawn, each halved at most a
+     * couple of times.
+     *
+     * The artwork is deliberately not included, and the timing is what keeps
+     * it out: this runs when the garden finishes loading, and a painting's
+     * panel texture arrives later, on its own. That is the right way round.
+     * Scenery is background -- bark a visitor never puts their nose against,
+     * where 512 is invisible and the memory is worth having. A painting is
+     * the thing they came to look at, and can be dollied into until it fills
+     * the screen. Softening it to save 25MB would be saving memory by
+     * damaging the only content on the site.
+     */
+    _capSceneTextures() {
+        const max = QUALITY.maxTextureSize;
+        if (!max) return;
+        const seen = new Set();
+        const slots = ['map', 'normalMap', 'roughnessMap', 'metalnessMap',
+            'aoMap', 'emissiveMap', 'alphaMap', 'bumpMap'];
+        this.scene.traverse((o) => {
+            if (!o.material) return;
+            const mats = Array.isArray(o.material) ? o.material : [o.material];
+            for (const m of mats) {
+                for (const slot of slots) {
+                    const t = m[slot];
+                    if (!t || seen.has(t.uuid)) continue;
+                    seen.add(t.uuid);
+                    downscaleTexture(t, max);
+                }
+            }
+        });
+    }
+
     _maxAnisotropy() {
         if (this._aniso === undefined) {
             this._aniso = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
@@ -581,7 +736,9 @@ class GulmoharApp {
         });
         // The pond's banks and bed wear the pond scene's own ground texture
         // (baked out by scripts/bake-pond-terrain.py), world-mapped.
-        const pondBedTex = new THREE.TextureLoader(this.loadingManager).load(getAssetUrl('textures/pond_bed.jpg'));
+        const pondBedTex = new THREE.TextureLoader(this.loadingManager).load(
+            getAssetUrl('textures/pond_bed.jpg'),
+            (t) => downscaleTexture(t, QUALITY.maxTextureSize));
         pondBedTex.wrapS = pondBedTex.wrapT = THREE.RepeatWrapping;
         pondBedTex.colorSpace = THREE.SRGBColorSpace;
         pondBedTex.anisotropy = this._maxAnisotropy();
@@ -696,7 +853,8 @@ class GulmoharApp {
         this.scene.add(ground);
         this.groundMesh = ground;   // placement mode raycasts it for ground mounts
 
-        this.skySystem = createTorontoSkySystem(1800, QUALITY.skySegW, QUALITY.skySegH);
+        this.skySystem = createTorontoSkySystem(1800, QUALITY.skySegW, QUALITY.skySegH,
+            (t) => downscaleTexture(t, QUALITY.maxTextureSize));
         this.scene.add(this.skySystem.skyRoot);
 
         // A baked top-down photograph of the ground, not the photogrammetry
@@ -709,6 +867,7 @@ class GulmoharApp {
         // and rasterising every triangle with its real UVs (see the skill's
         // bake-floor-texture.py and the README for the exact command).
         new THREE.TextureLoader(this.loadingManager).load(getAssetUrl('textures/ground_baked.jpg'), (tex) => {
+            downscaleTexture(tex, QUALITY.maxTextureSize);
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
             tex.colorSpace = THREE.SRGBColorSpace;
@@ -734,6 +893,7 @@ class GulmoharApp {
                         if (t && !seenTex.has(t.uuid)) {
                             seenTex.add(t.uuid);
                             t.anisotropy = aniso;
+                            downscaleTexture(t, QUALITY.maxTextureSize);
                             t.needsUpdate = true;
                         }
                     });
@@ -833,6 +993,12 @@ class GulmoharApp {
                 });
                 this.fpsNavigator.setColliders([...trunkColliders, ...paintingColliders]);
 
+                // One sweep over everything, after the last loader has run.
+                // The per-loader calls above catch what they own, but the
+                // grass cards, meadow clumps and floor litter are added
+                // straight to the scene rather than into garden.group, and
+                // theirs are among the largest left.
+                this._capSceneTextures();
                 this._contentReady = true;
                 this.renderer.shadowMap.needsUpdate = true;
                 this._maybeStartIntro();
@@ -910,11 +1076,13 @@ class GulmoharApp {
         this.raycaster.setFromCamera(this.pointer, this.camera);
         const hits = this.raycaster.intersectObjects(this._hoverTargets, true);
         let owner = null;
+        let anchor = null;
         for (let i = 0; i < hits.length; i++) {
             let cur = hits[i].object;
             while (cur) {
                 if (this._hoverOwner.has(cur)) {
                     owner = this._hoverOwner.get(cur);
+                    anchor = cur;
                     break;
                 }
                 cur = cur.parent;
@@ -922,6 +1090,9 @@ class GulmoharApp {
             if (owner) break;
         }
 
+        // Kept so the label can follow the thing it names across the screen,
+        // and keep following it while the garden turns under it.
+        this._hoverAnchor = anchor;
         if (owner === this.hovered) return;
         this.hovered = owner;
 
@@ -931,10 +1102,10 @@ class GulmoharApp {
             label.querySelector('.hl-title').textContent = owner.title;
             label.querySelector('.hl-meta').textContent = owner.meta || '';
             label.classList.add('visible');
-            document.body.style.cursor = 'pointer';
+            if (!this._dragging) document.body.style.cursor = 'pointer';
         } else {
             label.classList.remove('visible');
-            document.body.style.cursor = 'crosshair';
+            document.body.style.cursor = this._dragging ? 'grabbing' : 'grab';
         }
     }
 
@@ -1083,6 +1254,64 @@ class GulmoharApp {
      * cameraTarget (undefined for a landmark, which keeps the old, coarser
      * fraction-of-framing-distance floor those still need).
      */
+    /**
+     * Turns the camera about the orbit target by `delta` radians, the way a
+     * drag would. OrbitControls has getAzimuthalAngle but no setter, so this
+     * rotates the camera's offset from the target directly; controls.update()
+     * on the next frame picks the new position up as the current state.
+     */
+    _orbitAzimuth(delta) {
+        if (!delta) return;
+        const off = this.camera.position.clone().sub(this.controls.target);
+        off.applyAxisAngle(WORLD_UP, delta);
+        this.camera.position.copy(this.controls.target).add(off);
+        this.camera.lookAt(this.controls.target);
+        // Same suspension a real drag gets, or the ambient spin fights it.
+        clearTimeout(this._dragRotateResumeTimer);
+        this.controls.autoRotate = false;
+        if (this._introTl) { this._introTl.kill(); this._introTl = null; }
+        this._dragRotateResumeTimer = setTimeout(() => {
+            if (!this.motionPaused && this._introStarted) this.controls.autoRotate = true;
+        }, 2500);
+    }
+
+    /**
+     * Slides the label under whatever it is naming. Centred at the foot of
+     * the frame is right when you are looking straight at something, and
+     * wrong the moment you hover a tree off at the edge of the garden: the
+     * caption sits in the middle of the screen with nothing beneath it, and
+     * reads as belonging to whatever happens to be centre-frame instead.
+     *
+     * Horizontal only. It stays on its line above the dock -- a caption that
+     * chased the object vertically as well would end up anywhere, including
+     * over the artwork, which is the thing it must never cover.
+     */
+    _trackHoverLabel() {
+        const label = this._hoverLabelEl;
+        if (!label || !label.classList.contains('visible')) return;
+        const plate = this._hoverPlateEl;
+        const anchor = this._hoverAnchor;
+        if (!plate || !anchor) return;
+
+        anchor.getWorldPosition(_hoverWorld);
+        _hoverWorld.project(this.camera);
+        const vw = window.innerWidth;
+        // Behind the camera comes back mirrored, so pin it to the centre
+        // rather than flinging the label to the opposite edge.
+        const onScreen = _hoverWorld.z < 1;
+        const wantX = onScreen ? (_hoverWorld.x * 0.5 + 0.5) * vw : vw / 2;
+
+        // Never let it hang off the edge: the plate is wide, and a landmark
+        // at the far left would otherwise push half the title out of view.
+        const half = plate.offsetWidth / 2;
+        const margin = 12;
+        const clamped = Math.max(half + margin, Math.min(vw - half - margin, wantX));
+        const dx = clamped - vw / 2;
+        // Eased rather than snapped, or it judders as the scene auto-rotates.
+        this._hoverLabelX += (dx - this._hoverLabelX) * 0.18;
+        plate.style.setProperty('--hl-dx', `${this._hoverLabelX.toFixed(1)}px`);
+    }
+
     _paintingDollyLimit(worldHeight, framingDist) {
         if (!worldHeight) return Math.min(ORBIT_MIN_DISTANCE, framingDist * 0.9);
         const vFov = THREE.MathUtils.degToRad(this.camera.fov);
@@ -1646,7 +1875,8 @@ class GulmoharApp {
         this.walkBtn = walkBtn;
 
         // No onClick: the long-press handler owns both paths, or a tap fires twice.
-        const motionBtn = createBtn(icons.pause, null, 'Pause motion · Hold to speed up');
+        const motionBtn = createBtn(this.motionPaused ? icons.play : icons.pause, null,
+            this.motionPaused ? 'Resume motion' : 'Pause motion · Hold to speed up');
         motionBtn.style.color = '#fff';
         this.motionBtn = motionBtn;
         addLongPress(motionBtn, () => {
@@ -1999,6 +2229,9 @@ class GulmoharApp {
         // gate runs earlier in the frame, so the flag is read on the next one
         // -- a frame's latency on a shadow refresh nobody can see.
         this._updatePaintingFocus();
+        // Per frame, not per hover: the garden turns under a held hover, so a
+        // label parked where the object used to be drifts off it.
+        this._trackHoverLabel();
         if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
             this._paintingsTurned = true;
         }
