@@ -95,6 +95,9 @@ const WALK_UI_HIDE_MS = 3200;
 // it for the duration -- a canvas is viewed from about two metres, not six --
 // and anything that moves the focus elsewhere puts it back.
 const ORBIT_MIN_DISTANCE = 6.0;
+// How far above the ground the orbit camera must stay. Low enough to look up
+// a trunk from its base, high enough to keep the near plane out of the soil.
+const ORBIT_MIN_GROUND_CLEARANCE_M = 0.45;
 
 // Two-finger horizontal swipe -> turn. How much more horizontal than vertical
 // a wheel event must be before it counts as a turn rather than a dolly: a
@@ -107,6 +110,12 @@ const WHEEL_PAN_RATIO = 1.2;
 const WHEEL_PAN_RAD_PER_PX = 0.0042;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _hoverWorld = new THREE.Vector3();
+const _markerWorld = new THREE.Vector3();
+// Distance at which the hover ring is drawn at its authored size; nearer
+// grows it, further shrinks it.
+const MARKER_REF_DIST_M = 16;
+const MARKER_MIN_SCALE = 0.55;
+const MARKER_MAX_SCALE = 2.1;
 
 /**
  * Shrinks a texture in place to `max` on its longest side, before it is ever
@@ -334,7 +343,10 @@ class GulmoharApp {
         this.controls.dampingFactor = 0.05;
         this.controls.minDistance = ORBIT_MIN_DISTANCE;
         this.controls.maxDistance = 58;
-        this.controls.maxPolarAngle = Math.PI * 0.48;   // low upward glance, never below ground
+        // Recomputed every frame in _clampTilt -- a fixed angle cannot express
+        // "stay above the grass", which is the constraint that actually
+        // matters. Seeded here so the first frame has something sane.
+        this.controls.maxPolarAngle = Math.PI * 0.48;
         this.controls.autoRotate = false;               // released when the intro descent begins
         this.controls.autoRotateSpeed = -0.35;
 
@@ -397,6 +409,16 @@ class GulmoharApp {
         };
         window.addEventListener('pointerup', endDrag);
         window.addEventListener('pointercancel', endDrag);
+        // A pointerdown whose pointerup never arrives -- the pointer left the
+        // window mid-drag, the tab lost focus, the browser swallowed it --
+        // used to latch this flag on for the rest of the session, which left
+        // the cursor stuck on `grabbing` and silently suppressed the hover
+        // marker, whose whole job is to not appear mid-drag. Every one of
+        // these is a way the gesture can end, so every one of them ends it.
+        window.addEventListener('blur', endDrag);
+        document.addEventListener('pointerleave', endDrag);
+        document.addEventListener('mouseleave', endDrag);
+        this.controls.addEventListener('end', endDrag);
 
         this.scene.fog = new THREE.FogExp2(0x8ec2ec, 0.0018);   // light atmospheric depth without milky white washout
 
@@ -408,6 +430,8 @@ class GulmoharApp {
         // you are carrying a painting. Building the visitor dock as well put
         // two control surfaces on screen at once, with the home orb sitting
         // under the placement bar offering to fly the camera away mid-place.
+        this._navMarkersEl = document.getElementById('nav-markers');
+        this._navMarkers = [];
         this._hoverLabelEl = document.getElementById('hover-label');
         this._hoverPlateEl = this._hoverLabelEl && this._hoverLabelEl.querySelector('.hl-plate');
         if (!this.placeArtworkId) {
@@ -999,6 +1023,7 @@ class GulmoharApp {
                 // straight to the scene rather than into garden.group, and
                 // theirs are among the largest left.
                 this._capSceneTextures();
+                this._buildNavMarkers();
                 this._contentReady = true;
                 this.renderer.shadowMap.needsUpdate = true;
                 this._maybeStartIntro();
@@ -1201,13 +1226,27 @@ class GulmoharApp {
         // fall back to the landmarks' actual geometry before giving up.
         if (!targetData) targetData = this._pickByGeometry();
 
-        // A painting behaves identically wherever it was clicked from -- the
-        // same framed, dolly-zoomable, billboard-tracking focus onClick
-        // already gives it in orbit mode, not the FPS fast-travel-and-stare
-        // landmarks get. Handled first and unconditionally, so walk mode
-        // simply hands off to orbit for it rather than keeping a second,
-        // divergent way to look at a painting in sync with the first.
-        if (targetData && targetData.kind === 'painting' && targetData.cameraTarget) {
+        // Anything nameable goes through the one path, so a click on the
+        // object and a click on its marker in the overlay cannot drift apart.
+        // Nothing nameable: put the dock away and clear the caption, but do
+        // not move the camera -- this used to raycast the garden and the
+        // ground and slide the orbit pivot to whatever it found, which is
+        // almost every click, since grass covers the screen.
+        if (targetData && targetData.cameraTarget) {
+            this.focusTarget(targetData);
+            return;
+        }
+        this.showLabelFor(null);
+        this.hideUIForSceneTap();
+    }
+
+    /**
+     * Fly to something and select it -- the one path, whether the click came
+     * from the object itself or from its marker in the overlay.
+     */
+    focusTarget(targetData) {
+        if (!targetData || !targetData.cameraTarget) return;
+        if (targetData.kind === 'painting') {
             if (this.navMode === 'walk') this.setNavMode('orbit');
             const { pos, lookAt, worldHeight } = targetData.cameraTarget;
             this.controls.minDistance = this._paintingDollyLimit(worldHeight, pos.distanceTo(lookAt));
@@ -1222,31 +1261,15 @@ class GulmoharApp {
         }
 
         if (this.navMode === 'walk') {
-            if (targetData && targetData.cameraTarget) {
-                // A landmark still fast-travels to it on foot -- that is
-                // choosing a destination to walk toward, unlike a painting.
-                this.fpsNavigator.fastTravelTo(targetData.cameraTarget.pos.x, targetData.cameraTarget.pos.z, targetData.cameraTarget.lookAt, 1.3);
-            } else if (!('ontouchstart' in window || navigator.maxTouchPoints > 0)) {
-                // A tap on open ground/grass used to fast-travel there too,
-                // which is nearly every tap in walk mode -- WASD/the joystick
-                // already move you, so a tap meant to bring the dock back
-                // kept also snapping the camera to stare down at whatever
-                // patch of grass happened to be under the reticle. Now it
-                // does the one thing that tap actually meant: on desktop,
-                // re-arm mouse-look; either way, just reveal the dock.
-                this.fpsNavigator.requestPointerLock();
-            }
-            if (targetData && targetData.cameraTarget) {
-                this.showLabelFor(targetData);
-                this.setUIVisibility(true);
-            } else {
-                this.showLabelFor(null);
-                this.hideUIForSceneTap();
-            }
+            // A landmark still fast-travels to it on foot -- that is
+            // choosing a destination to walk toward, unlike a painting.
+            this.fpsNavigator.fastTravelTo(targetData.cameraTarget.pos.x, targetData.cameraTarget.pos.z, targetData.cameraTarget.lookAt, 1.3);
+            this.showLabelFor(targetData);
+            this.setUIVisibility(true);
             return;
         }
 
-        if (targetData && targetData.cameraTarget) {
+        {
             // A landmark only -- a painting returned above already.
             const { pos, lookAt } = targetData.cameraTarget;
             // OrbitControls re-clamps the camera to minDistance on its next
@@ -1270,17 +1293,6 @@ class GulmoharApp {
             });
             this.showLabelFor(targetData);
             this.setUIVisibility(true);
-        } else {
-            // Nothing nameable under the cursor. This used to raycast the
-            // whole garden and the ground, then slide the orbit pivot to
-            // whatever it found -- which is almost every click, since grass
-            // covers the screen. Moving the pivot without moving the camera
-            // re-frames the whole shot: the garden appears to swing and pull
-            // back on its own, from a click the visitor meant as nothing more
-            // than "put the dock away". A click on empty space now does only
-            // that, and leaves the camera exactly where it was.
-            this.showLabelFor(null);
-            this.hideUIForSceneTap();
         }
     }
 
@@ -1310,6 +1322,83 @@ class GulmoharApp {
         this._dragRotateResumeTimer = setTimeout(() => {
             if (!this.motionPaused && this._introStarted) this.controls.autoRotate = true;
         }, 2500);
+    }
+
+    /**
+     * One marker per place worth going, built once the garden has loaded and
+     * every anchor exists. Registered hover targets are the source, so this
+     * cannot list something that is not clickable, or miss something that is.
+     */
+    _buildNavMarkers() {
+        const host = this._navMarkersEl;
+        if (!host) return;
+        host.replaceChildren();
+        this._navMarkers = [];
+        for (const [object, data] of this._hoverOwner) {
+            if (!data || !data.cameraTarget) continue;      // nowhere to fly to
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'nav-marker';
+            btn.setAttribute('aria-label', data.title || 'Go here');
+            const ring = document.createElement('span');
+            ring.className = 'nm-ring';
+            const name = document.createElement('span');
+            name.className = 'nm-name';
+            name.textContent = data.title || '';
+            btn.append(ring, name);
+            // stopPropagation, or the same tap reaches the canvas underneath
+            // and is read as a click on empty scene that clears the selection
+            // this is about to make.
+            btn.addEventListener('pointerdown', (e) => e.stopPropagation());
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.focusTarget(data);
+            });
+            host.appendChild(btn);
+            this._navMarkers.push({ btn, object, data });
+        }
+    }
+
+    /**
+     * Projects every marker onto the screen, once a frame.
+     *
+     * Hidden wholesale while something is selected: once you are looking at a
+     * painting, every other marker on screen is an invitation to stop looking
+     * at it. Also hidden mid-drag, where a dozen rings sliding around are
+     * just noise.
+     */
+    _trackNavMarkers() {
+        const host = this._navMarkersEl;
+        if (!host || !this._navMarkers.length) return;
+
+        const hide = !!this._labelAnchor || this._dragging || this.navMode === 'walk';
+        if (hide !== this._markersHidden) {
+            this._markersHidden = hide;
+            host.classList.toggle('markers-hidden', hide);
+        }
+        if (hide) return;
+
+        const vw = window.innerWidth, vh = window.innerHeight;
+        for (const m of this._navMarkers) {
+            m.object.getWorldPosition(_markerWorld);
+            const dist = this.camera.position.distanceTo(_markerWorld);
+            _markerWorld.project(this.camera);
+            const behind = _markerWorld.z >= 1;
+            const x = (_markerWorld.x * 0.5 + 0.5) * vw;
+            const y = (-_markerWorld.y * 0.5 + 0.5) * vh;
+            // Off-screen markers are faded rather than removed: toggling
+            // display on a dozen elements as the garden turns thrashes
+            // layout, and opacity is composited.
+            const off = behind || x < -80 || x > vw + 80 || y < -80 || y > vh + 80;
+            const fade = off ? '0' : '1';
+            if (m.fade !== fade) { m.fade = fade; m.btn.style.setProperty('--m-fade', fade); }
+            if (off) continue;
+            const scale = THREE.MathUtils.clamp(MARKER_REF_DIST_M / Math.max(dist, 0.5),
+                MARKER_MIN_SCALE, MARKER_MAX_SCALE);
+            m.btn.style.setProperty('--m-x', `${x.toFixed(1)}px`);
+            m.btn.style.setProperty('--m-y', `${y.toFixed(1)}px`);
+            m.btn.style.setProperty('--m-scale', scale.toFixed(3));
+        }
     }
 
     /**
@@ -1347,6 +1436,38 @@ class GulmoharApp {
         // Eased rather than snapped, or it judders as the scene auto-rotates.
         this._hoverLabelX += (dx - this._hoverLabelX) * 0.18;
         plate.style.setProperty('--hl-dx', `${this._hoverLabelX.toFixed(1)}px`);
+    }
+
+    /**
+     * How far the view may tilt, derived rather than fixed.
+     *
+     * It used to be a constant 0.48*pi -- just shy of horizontal -- with a
+     * hard "if the camera drops below y=0.2, shove it back up" behind it.
+     * That stopped you standing at the foot of the gulmohar and looking up
+     * the trunk, which is one of the few shots the garden is actually built
+     * for, and the shove fought the orbit whenever you got near it.
+     *
+     * The real constraint is "the camera must stay above the grass", and for
+     * an orbit that is a height, not an angle:
+     *
+     *     camera.y = target.y + dist * cos(polar)  >=  floor
+     *     => polar <= acos((floor - target.y) / dist)
+     *
+     * So the limit falls out of where you are looking and how close you are.
+     * Framed on something high with the camera pulled in, it opens up past
+     * horizontal and you get to look up; out at range on a ground-level
+     * target it stays near horizontal, which is where it belongs. Nothing
+     * has to be pushed anywhere afterwards.
+     */
+    _clampTilt() {
+        const t = this.controls.target;
+        const dist = this.camera.position.distanceTo(t);
+        if (dist < 1e-3) return;
+        const floor = groundHeightAt(t.x, t.z) + ORBIT_MIN_GROUND_CLEARANCE_M;
+        const cos = THREE.MathUtils.clamp((floor - t.y) / dist, -1, 1);
+        // Never tighter than the old limit, so a target below the camera
+        // cannot lock the view into looking down.
+        this.controls.maxPolarAngle = Math.max(Math.acos(cos), Math.PI * 0.48);
     }
 
     _paintingDollyLimit(worldHeight, framingDist) {
@@ -2011,6 +2132,14 @@ class GulmoharApp {
         document.body.appendChild(container);
         this.homeOrb = orb;
 
+        // Push the current state into the DOM before anything else runs.
+        // The bar and the orb are two states of one control stacked in the
+        // same grid cell, and which of them shows is decided entirely by
+        // these classes -- so with neither applied, the first frame drew
+        // BOTH, the orb sitting on top of the middle of the bar. It was
+        // never reached on load either: resetUIHideTimer only calls
+        // setUIVisibility when uiVisible is false, and it starts true.
+        this.setUIVisibility(this.uiVisible);
         this.resetUIHideTimer();
     }
 
@@ -2264,6 +2393,7 @@ class GulmoharApp {
 
         // Damping can overshoot a limit for a frame, so clamp height as a backstop.
         if (this.camera.position.y < 0.2) this.camera.position.y = 0.2;
+        if (this.navMode !== 'walk') this._clampTilt();
 
         if (this.navMode === 'walk') {
             this.fpsNavigator.update(dt);
@@ -2288,6 +2418,7 @@ class GulmoharApp {
         // Per frame, not per hover: the garden turns under a held hover, so a
         // label parked where the object used to be drifts off it.
         this._trackHoverLabel();
+        this._trackNavMarkers();
         if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
             this._paintingsTurned = true;
         }

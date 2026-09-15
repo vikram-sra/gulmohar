@@ -51,9 +51,9 @@ const found = FIREBASE_MARKERS.filter((m) => src.includes(m));
 // deliberately in the same commit as whatever earns the extra size, with a
 // one-line note of why, rather than letting this check silently ratchet up
 // forever unnoticed.
-// 896: the hover label now tracks its object across the screen per frame
-// and a wheel handler turns the camera on a two-finger swipe (main.js).
-const BASELINE_KB = 897; // raised for trunk/painting FPS collision, the frame/mount billboard split, and dolly-to-fill-screen zoom -- real, measured growth
+// 901: clickable navigation markers -- one projected, distance-scaled DOM
+// ring per place worth going, plus the hover-marker and tilt-clamp work.
+const BASELINE_KB = 901; // raised for trunk/painting FPS collision, the frame/mount billboard split, and dolly-to-fill-screen zoom -- real, measured growth
 const BUDGET_KB = BASELINE_KB + 3;
 
 let failed = false;

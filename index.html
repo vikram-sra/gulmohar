@@ -60,6 +60,17 @@
       /* Warm by day, so the orb reads as lit rather than as a hole. */
       --orb-glow: rgba(217, 80, 47, 0.30);
       --orb-glow-soft: rgba(217, 80, 47, 0.14);
+      /* Day and Night carry a visible ring -- they are the two buttons that
+         set a state rather than run an action, so they read as a pair and
+         say which one you are in. Their own tokens, because the shared
+         --hud-btn-border is deliberately near-invisible and these must not
+         be. */
+      --btn-sun-ink: #C4441F;
+      --btn-sun-line: rgba(196, 68, 31, 0.68);
+      --btn-sun-bg: rgba(217, 80, 47, 0.12);
+      --btn-moon-ink: #3F6F6B;
+      --btn-moon-line: rgba(63, 111, 107, 0.68);
+      --btn-moon-bg: rgba(94, 138, 134, 0.14);
     }
 
     body[data-tod="night"] {
@@ -83,6 +94,14 @@
          on screen once the dock has collapsed into it. */
       --orb-glow: rgba(242, 169, 140, 0.34);
       --orb-glow-soft: rgba(242, 169, 140, 0.16);
+      /* Both lift at night: the dark glass swallows the daytime pair, and
+         the pond green in particular goes to mud against it. */
+      --btn-sun-ink: #F2A98C;
+      --btn-sun-line: rgba(242, 169, 140, 0.72);
+      --btn-sun-bg: rgba(242, 169, 140, 0.15);
+      --btn-moon-ink: #AECFE0;
+      --btn-moon-line: rgba(174, 207, 224, 0.72);
+      --btn-moon-bg: rgba(174, 207, 224, 0.15);
     }
 
     .ui-overlay, .ui-overlay *, #clock, #hover-label *,
@@ -155,6 +174,84 @@
       font-variant-numeric: tabular-nums;
       text-shadow: var(--hud-halo);
       transition: opacity 0.6s ease, transform 0.6s ease, color 0.9s ease, text-shadow 0.9s ease;
+    }
+
+    /* --- navigation markers ----------------------------------------------
+       A ring on every place worth going, so the garden says where it can be
+       explored instead of making a visitor sweep the pointer around hunting
+       for a cursor change. They are real buttons, which is what makes this
+       work on a phone: the hitbox no longer has to be the object itself,
+       which on a touchscreen meant aiming a fingertip at a distant tree.
+
+       They scale with distance, and that is what makes them read as being IN
+       the garden rather than drawn on the glass: a ring on the far banyan is
+       small, the same ring on a painting an arm's length away is large.
+       Clamped at both ends -- unclamped, the near case swallows the screen
+       and the far case falls below a pixel and flickers.
+
+       They hide the moment something is selected. Once you are looking at a
+       painting, every other marker is an invitation to stop looking at it. */
+    #nav-markers {
+      position: fixed;
+      inset: 0;
+      z-index: 880;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+    }
+    #nav-markers.markers-hidden { opacity: 0; pointer-events: none; }
+    .nav-marker {
+      position: absolute;
+      left: 0; top: 0;
+      transform: translate3d(var(--m-x, -999px), var(--m-y, -999px), 0) translate(-50%, -50%);
+      will-change: transform;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      background: none;
+      border: 0;
+      padding: 6px;
+      cursor: pointer;
+      pointer-events: auto;
+      -webkit-tap-highlight-color: transparent;
+      opacity: var(--m-fade, 1);
+      transition: opacity 0.2s ease;
+    }
+    #nav-markers.markers-hidden .nav-marker { pointer-events: none; }
+    .nav-marker .nm-ring {
+      display: block;
+      position: relative;
+      width: calc(13px * var(--m-scale, 1));
+      height: calc(13px * var(--m-scale, 1));
+      border-radius: 50%;
+      border: 1.5px solid var(--hud-ink-strong);
+      box-shadow: 0 0 0 1px var(--hud-halo-tight), 0 0 9px var(--hud-halo-tight);
+      transition: transform 0.15s ease, background 0.15s ease;
+    }
+    /* A dot inside: at the far end of the scale the ring alone is a faint
+       circle that reads as a lens artefact rather than a control. */
+    .nav-marker .nm-ring::after {
+      content: '';
+      position: absolute;
+      inset: 30%;
+      border-radius: 50%;
+      background: var(--hud-ink-strong);
+    }
+    .nav-marker:hover .nm-ring, .nav-marker:focus-visible .nm-ring {
+      transform: scale(1.25);
+      background: var(--hud-halo-tight);
+    }
+    .nav-marker .nm-name {
+      font-size: calc(0.6rem * var(--m-scale, 1));
+      letter-spacing: 0.1rem;
+      color: var(--hud-ink-strong);
+      white-space: nowrap;
+      text-shadow: 0 0 4px var(--hud-halo-tight), 0 0 10px var(--hud-halo-tight);
+      opacity: 0.92;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #nav-markers, .nav-marker, .nav-marker .nm-ring { transition: none; }
     }
 
     /* --- hover label ------------------------------------------------------ */
@@ -283,12 +380,31 @@
       background: var(--hud-glass-b); transform: scale(0.92);
     }
     .glass-btn:focus-visible { outline: 2px solid var(--gulmohar); outline-offset: 2px; }
-    .glass-btn.day-btn { color: var(--gulmohar); background: rgba(217,80,47,0.08); border-color: rgba(217,80,47,0.22); }
-    .glass-btn.day-btn:hover { color: #fff2b2; background: rgba(217,80,47,0.18);
-      border-color: rgba(217,80,47,0.5); box-shadow: 0 0 10px rgba(217,80,47,0.25); }
-    .glass-btn.night-btn { color: var(--pond); background: rgba(94,138,134,0.10); border-color: rgba(94,138,134,0.24); }
-    .glass-btn.night-btn:hover { color: #d0ebff; background: rgba(94,138,134,0.20);
-      border-color: rgba(94,138,134,0.5); box-shadow: 0 0 10px rgba(94,138,134,0.25); }
+    /* A full 1px, not the 0.5px hairline the other buttons wear: at 0.5px
+       and 22% alpha these rings were there in the stylesheet and invisible
+       on screen, which left Day and Night looking like two more unlabelled
+       icons in a row of them. */
+    .glass-btn.day-btn, .glass-btn.night-btn { border-width: 1px; }
+    .glass-btn.day-btn {
+      color: var(--btn-sun-ink);
+      background: var(--btn-sun-bg);
+      border-color: var(--btn-sun-line);
+    }
+    .glass-btn.day-btn:hover, .glass-btn.day-btn:focus-visible {
+      background: rgba(217, 80, 47, 0.26);
+      border-color: var(--btn-sun-ink);
+      box-shadow: 0 0 12px var(--btn-sun-bg);
+    }
+    .glass-btn.night-btn {
+      color: var(--btn-moon-ink);
+      background: var(--btn-moon-bg);
+      border-color: var(--btn-moon-line);
+    }
+    .glass-btn.night-btn:hover, .glass-btn.night-btn:focus-visible {
+      background: rgba(94, 138, 134, 0.28);
+      border-color: var(--btn-moon-ink);
+      box-shadow: 0 0 12px var(--btn-moon-bg);
+    }
 
     .btn-tip {
       position: absolute;
@@ -574,6 +690,7 @@
 
   <div id="clock">--:--</div>
 
+  <div id="nav-markers"></div>
   <div id="hover-label"><span class="hl-plate"><span class="hl-title"></span><span class="hl-meta"></span></span></div>
 
   <div id="loader">
