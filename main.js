@@ -2201,10 +2201,14 @@ class GulmoharApp {
             document.body.dataset.tod = wantNight ? 'night' : 'day';
         }
 
-        if (!this.motionPaused) {
-            if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt, this._lightCtx);
-            if (this.dust) this.dust.rotation.y += 0.0002;
-        }
+        // Wind and water are not "motion" in the sense the pause button
+        // means. Pause is there to stop the clock running and the camera
+        // drifting, so you can look at something; a garden where the leaves
+        // and the pond freeze solid at the same time stops being a place and
+        // becomes a photograph. Only the sun (above) and autoRotate are
+        // gated -- this runs always.
+        if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt, this._lightCtx);
+        if (this.dust) this.dust.rotation.y += 0.0002;
 
         // Damping can overshoot a limit for a frame, so clamp height as a backstop.
         if (this.camera.position.y < 0.2) this.camera.position.y = 0.2;
