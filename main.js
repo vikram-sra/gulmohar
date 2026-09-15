@@ -1096,17 +1096,46 @@ class GulmoharApp {
         if (owner === this.hovered) return;
         this.hovered = owner;
 
-        const label = document.getElementById('hover-label');
-        if (!label) return;
-        if (owner) {
-            label.querySelector('.hl-title').textContent = owner.title;
-            label.querySelector('.hl-meta').textContent = owner.meta || '';
-            label.classList.add('visible');
-            if (!this._dragging) document.body.style.cursor = 'pointer';
-        } else {
-            label.classList.remove('visible');
-            document.body.style.cursor = this._dragging ? 'grabbing' : 'grab';
+        // Hovering changes the cursor and nothing else. The label used to
+        // appear here, which meant it fired on every pointer move across a
+        // garden that is mostly hoverable -- captions flickering in and out
+        // and sliding around while you were only trying to look. It is shown
+        // on click now, by showLabelFor, where it names something you
+        // actually asked about.
+        if (!this._dragging) {
+            document.body.style.cursor = owner ? 'pointer' : 'grab';
         }
+    }
+
+    /**
+     * Shows the caption for something just clicked, or clears it when the
+     * click landed on nothing. `anchor` is the object it should track; when
+     * it is not given (a tap, which has no hover to have found one), fall
+     * back to whatever the pick just matched.
+     */
+    showLabelFor(data, anchor = null) {
+        const label = this._hoverLabelEl;
+        if (!label) return;
+        if (!data) {
+            label.classList.remove('visible');
+            this._labelAnchor = null;
+            return;
+        }
+        label.querySelector('.hl-title').textContent = data.title || '';
+        label.querySelector('.hl-meta').textContent = data.meta || '';
+        this._labelAnchor = anchor || this._hoverAnchor || this._anchorFor(data);
+        // Start it under its object rather than sliding in from centre.
+        this._hoverLabelX = 0;
+        label.classList.add('visible');
+        this._trackHoverLabel();
+    }
+
+    /** The registered object carrying this hover data, for label tracking. */
+    _anchorFor(data) {
+        for (const [object, owner] of this._hoverOwner) {
+            if (owner === data) return object;
+        }
+        return null;
     }
 
     onClick(e) {
@@ -1187,6 +1216,7 @@ class GulmoharApp {
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: 1.4, ease: 'power2.inOut' });
             gsap.to(this.controls.target, { x: lookAt.x, y: lookAt.y, z: lookAt.z, duration: 1.4, ease: 'power2.inOut' });
+            this.showLabelFor(targetData);
             this.setUIVisibility(true);
             return;
         }
@@ -1206,8 +1236,13 @@ class GulmoharApp {
                 // re-arm mouse-look; either way, just reveal the dock.
                 this.fpsNavigator.requestPointerLock();
             }
-            if (targetData && targetData.cameraTarget) this.setUIVisibility(true);
-            else this.hideUIForSceneTap();
+            if (targetData && targetData.cameraTarget) {
+                this.showLabelFor(targetData);
+                this.setUIVisibility(true);
+            } else {
+                this.showLabelFor(null);
+                this.hideUIForSceneTap();
+            }
             return;
         }
 
@@ -1233,6 +1268,7 @@ class GulmoharApp {
                 duration: 1.4,
                 ease: 'power2.inOut'
             });
+            this.showLabelFor(targetData);
             this.setUIVisibility(true);
         } else {
             // Nothing nameable under the cursor. This used to raycast the
@@ -1243,6 +1279,7 @@ class GulmoharApp {
             // back on its own, from a click the visitor meant as nothing more
             // than "put the dock away". A click on empty space now does only
             // that, and leaves the camera exactly where it was.
+            this.showLabelFor(null);
             this.hideUIForSceneTap();
         }
     }
@@ -1290,7 +1327,7 @@ class GulmoharApp {
         const label = this._hoverLabelEl;
         if (!label || !label.classList.contains('visible')) return;
         const plate = this._hoverPlateEl;
-        const anchor = this._hoverAnchor;
+        const anchor = this._labelAnchor;
         if (!plate || !anchor) return;
 
         anchor.getWorldPosition(_hoverWorld);
@@ -1920,7 +1957,22 @@ class GulmoharApp {
         // back to the start without first closing the dock.
         const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home · back to the garden');
 
-        wrapper.append(homeBtn, walkBtn, motionBtn, sunBtn, moonBtn, workBtn, aboutBtn);
+        // Walk mode and the motion control are desktop-only for now. Walking
+        // wants WASD and a drag to look; on a phone that becomes a joystick,
+        // a jump button, a sprint button and a look-drag competing for one
+        // thumb, over a garden small enough to see from the orbit view
+        // anyway. Motion goes with it: its tap/hold split (tap pauses, hold
+        // ramps the clock) is a mouse idiom, and a hold on touch reads as a
+        // long-press, not a speed dial.
+        //
+        // Coarse pointer AND multi-touch, the same test quality.js uses:
+        // either alone misidentifies touchscreen laptops and iPads.
+        const coarse = window.matchMedia?.('(pointer: coarse)')?.matches === true;
+        const touch = (navigator.maxTouchPoints || 0) > 1;
+        this.touchOnly = coarse && touch;
+        wrapper.append(homeBtn);
+        if (!this.touchOnly) wrapper.append(walkBtn, motionBtn);
+        wrapper.append(sunBtn, moonBtn, workBtn, aboutBtn);
 
         if (SITE.instagram) {
             wrapper.append(createBtn(icons.instagram, () => {
