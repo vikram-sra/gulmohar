@@ -95,12 +95,17 @@ const WALK_UI_HIDE_MS = 3200;
 // it for the duration -- a canvas is viewed from about two metres, not six --
 // and anything that moves the focus elsewhere puts it back.
 const ORBIT_MIN_DISTANCE = 6.0;
-// Where the garden opens, and where Home returns to: an aerial with the
-// gulmohar in the middle. Stood off on the bearing opposite the pavilion, so
-// the pavilion sits beyond the tree and the path loop reads as a loop rather
-// than as a stripe across the corner of the frame.
+// Where the garden opens, and where Home returns to. A three-quarter view
+// from above the pavilion's side of the path: the gulmohar centre frame with
+// the whole loop swinging through it, the pavilion near and low in one corner
+// for depth, and the banyan and mango holding the far edges so the garden
+// reads as a place with boundaries rather than one tree standing on grass.
+//
+// Fitted, not eyeballed: solved by projecting those four landmarks and
+// searching camera azimuth, distance, height and look height for the
+// arrangement that put each of them where it belonged in frame.
 const HOME_VIEW = {
-    pos: { x: -23.2, y: 34.0, z: -19.0 },
+    pos: { x: 45.9, y: 25.0, z: 14.0 },
     look: { x: 0, y: 2.0, z: 0 }
 };
 // How far above the ground the orbit camera must stay. Low enough to look up
@@ -1675,7 +1680,11 @@ class GulmoharApp {
         // ambient rotation at the same moment the loader fades, means the
         // very first thing a visitor sees is already in motion.
         const target = { ...HOME_VIEW.pos };
-        this.camera.position.set(target.x * 1.22, target.y + 6.0, target.z * 1.22);
+        // A small pull-back, not a big one: the opening view already sits at
+        // 53m and maxDistance is 58, so a generous overshoot would be clamped
+        // by OrbitControls on the first update and the ease would start with
+        // a jump.
+        this.camera.position.set(target.x * 1.05, target.y + 2.5, target.z * 1.05);
         this.controls.target.set(HOME_VIEW.look.x, HOME_VIEW.look.y, HOME_VIEW.look.z);
 
         const tl = gsap.timeline();
