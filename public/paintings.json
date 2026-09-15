@@ -93,8 +93,7 @@
         0
       ],
       "rise": 1.5,
-      "scale": 1,
-      "startHere": true
+      "scale": 1
     },
     {
       "id": "banyan-nail",
@@ -162,6 +161,29 @@
       "rotation": [
         0,
         3.648,
+        0
+      ],
+      "scale": 1
+    },
+    {
+      "id": "mango-bark",
+      "file": "portfolio/untitled-i.svg",
+      "widthIn": 18,
+      "heightIn": 24,
+      "title": "Windfall",
+      "year": 2026,
+      "medium": "Oil on panel",
+      "frame": "white",
+      "anchor": "world",
+      "mount": "surface",
+      "position": [
+        -8.911,
+        1.7,
+        -24.252
+      ],
+      "rotation": [
+        0,
+        -1.571,
         0
       ],
       "scale": 1

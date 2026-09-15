@@ -964,8 +964,15 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         // side until the whole sightline clears the gulmohar.
         const dist = spec.height * 1.15 * Math.sqrt(w);
         const inward = standoffDirection(wx, wz, dist);
-        const camY = spec.kind === 'banyan' ? spec.height * 0.32 : spec.height * 0.52;
-        const lookY = spec.kind === 'banyan' ? spec.height * 0.16 : spec.height * 0.42;
+        // Eye level, capped -- not a fraction of the tree's height. Scaling
+        // the camera with the tree put you 8m up looking DOWN at a banyan,
+        // and from there dollying in only ever got you closer to the top of
+        // it. The gulmohar reads differently for exactly one reason: it
+        // frames from 3.2m, a person's height, so you arrive under the canopy
+        // and the dolly takes you to the trunk. These now do the same, and
+        // the cap is what stops a tall tree undoing it.
+        const camY = Math.min(spec.height * 0.29, 4.0);
+        const lookY = Math.min(spec.height * 0.25, 3.5);
         interactives.push({
             object: hitbox,
             targetGroup: holder,

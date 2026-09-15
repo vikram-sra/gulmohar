@@ -95,6 +95,14 @@ const WALK_UI_HIDE_MS = 3200;
 // it for the duration -- a canvas is viewed from about two metres, not six --
 // and anything that moves the focus elsewhere puts it back.
 const ORBIT_MIN_DISTANCE = 6.0;
+// Where the garden opens, and where Home returns to: an aerial with the
+// gulmohar in the middle. Stood off on the bearing opposite the pavilion, so
+// the pavilion sits beyond the tree and the path loop reads as a loop rather
+// than as a stripe across the corner of the frame.
+const HOME_VIEW = {
+    pos: { x: -23.2, y: 34.0, z: -19.0 },
+    look: { x: 0, y: 2.0, z: 0 }
+};
 // How far above the ground the orbit camera must stay. Low enough to look up
 // a trunk from its base, high enough to keep the near plane out of the soil.
 const ORBIT_MIN_GROUND_CLEARANCE_M = 0.45;
@@ -111,11 +119,19 @@ const WHEEL_PAN_RAD_PER_PX = 0.0042;
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _hoverWorld = new THREE.Vector3();
 const _markerWorld = new THREE.Vector3();
+const _occludeTo = new THREE.Vector3();
+const _occludeDir = new THREE.Vector3();
 // Distance at which the hover ring is drawn at its authored size; nearer
 // grows it, further shrinks it.
 const MARKER_REF_DIST_M = 16;
 const MARKER_MIN_SCALE = 0.55;
 const MARKER_MAX_SCALE = 2.1;
+// Within this multiple of an object's own framing distance, you are close
+// enough that its marker is covering it rather than pointing at it.
+const MARKER_ARRIVED_FACTOR = 1.7;
+// How far short of an object an occlusion ray stops, so the object cannot
+// occlude itself.
+const MARKER_OCCLUDE_SLACK_M = 0.6;
 
 /**
  * Shrinks a texture in place to `max` on its longest side, before it is ever
@@ -1364,16 +1380,62 @@ class GulmoharApp {
                 this.focusTarget(data);
             });
             host.appendChild(btn);
-            this._navMarkers.push({ btn, object, data });
+            // How far the site would fly you to look at this thing properly.
+            // Used below as the yardstick for "you are already here" -- it is
+            // per-object, which an absolute distance cannot be: a painting is
+            // framed from about 1.5m and a tree from about 17m.
+            const ct = data.cameraTarget;
+            const framingDist = ct.pos && ct.lookAt ? ct.pos.distanceTo(ct.lookAt) : 8;
+            this._navMarkers.push({ btn, object, data, framingDist });
         }
+    }
+
+    /**
+     * Is something solid between the camera and this marker's object? Only
+     * the garden's own fixtures are tested -- trunks, the gazebo, the ground
+     * -- because those are what actually hide things. Grass and leaf cards
+     * are excluded: they are alpha-cut and everywhere, and testing them would
+     * blink every marker off as a blade crossed the line of sight.
+     */
+    _testMarkerOcclusion(m) {
+        if (!m || !this.garden || !this.garden.group) return;
+        m.object.getWorldPosition(_occludeTo);
+        _occludeDir.subVectors(_occludeTo, this.camera.position);
+        const dist = _occludeDir.length();
+        if (dist < 0.1) { m.occluded = false; return; }
+        _occludeDir.divideScalar(dist);
+        this.raycaster.set(this.camera.position, _occludeDir);
+        this.raycaster.near = 0;
+        // Stop short of the object itself, or its own geometry counts as
+        // something blocking it.
+        this.raycaster.far = dist - MARKER_OCCLUDE_SLACK_M;
+        if (this.raycaster.far <= 0) { m.occluded = false; return; }
+        const hits = this.raycaster.intersectObject(this.garden.group, true);
+        let blocked = false;
+        for (const h of hits) {
+            const o = h.object;
+            if (!o.visible) continue;
+            if (o.material && o.material.visible === false) continue;   // hitboxes
+            const names = `${o.name} ${o.material && o.material.name}`;
+            if (/leaf|leaves|foliage|flower|fruit|grass|vine|shadow/i.test(names)) continue;
+            blocked = true;
+            break;
+        }
+        m.occluded = blocked;
     }
 
     /**
      * Projects every marker onto the screen, once a frame.
      *
-     * The selected object's own marker is hidden -- you are already looking
-     * at it, and its ring would sit on top of the thing it points to. Every
-     * other marker stays up, because those are still the places you can go
+     * A marker hides once you are at the thing it points to -- selected, or
+     * simply close enough that the object fills the view. Either way its ring
+     * is then sitting on top of the very thing it was pointing at, which is
+     * how a marker ended up planted in the middle of a painting you had just
+     * walked up to. Closeness is measured against that object's own framing
+     * distance rather than an absolute one: a painting is framed from about
+     * 1.5m and a tree from about 17m, so no single number works for both.
+     *
+     * Every other marker stays up -- those are still the places you can go
      * next. The whole set hides mid-drag, where a dozen rings sliding around
      * are just noise, and in walk mode, which has its own way of moving.
      */
@@ -1388,6 +1450,17 @@ class GulmoharApp {
         }
         if (hide) return;
 
+        // One occlusion test per frame, round-robin. Without it a marker is
+        // drawn on the glass rather than in the garden: standing at the mango
+        // with a painting in front of you, the ring for a painting thirty
+        // metres away on the gulmohar sits on top of the trunk between you
+        // and it. A full pass every frame would be a dozen rays through the
+        // garden's geometry; one ray cycles the whole set in a fifth of a
+        // second, which is far quicker than anyone can orbit.
+        this._occlusionCursor = (this._occlusionCursor || 0) % this._navMarkers.length;
+        this._testMarkerOcclusion(this._navMarkers[this._occlusionCursor]);
+        this._occlusionCursor += 1;
+
         const vw = window.innerWidth, vh = window.innerHeight;
         for (const m of this._navMarkers) {
             m.object.getWorldPosition(_markerWorld);
@@ -1400,7 +1473,8 @@ class GulmoharApp {
             // display on a dozen elements as the garden turns thrashes
             // layout, and opacity is composited.
             const selected = this._labelAnchor === m.object;
-            const off = selected || behind
+            const arrived = dist < m.framingDist * MARKER_ARRIVED_FACTOR;
+            const off = selected || arrived || behind || m.occluded
                 || x < -80 || x > vw + 80 || y < -80 || y > vh + 80;
             const fade = off ? '0' : '1';
             if (m.fade !== fade) {
@@ -1600,9 +1674,9 @@ class GulmoharApp {
         // pull-back on the final framing instead, eased straight into the
         // ambient rotation at the same moment the loader fades, means the
         // very first thing a visitor sees is already in motion.
-        const target = { x: 12.8, y: 3.2, z: 11.2 };
-        this.camera.position.set(target.x * 1.3, target.y + 4.5, target.z * 1.3);
-        this.controls.target.set(0, 2.8, 0);
+        const target = { ...HOME_VIEW.pos };
+        this.camera.position.set(target.x * 1.22, target.y + 6.0, target.z * 1.22);
+        this.controls.target.set(HOME_VIEW.look.x, HOME_VIEW.look.y, HOME_VIEW.look.z);
 
         const tl = gsap.timeline();
         this._introTl = tl;
@@ -1695,7 +1769,7 @@ class GulmoharApp {
         this.camera.updateProjectionMatrix();
 
         gsap.to(this.camera.position, {
-            x: 12.8, y: 3.2, z: 11.2,
+            ...HOME_VIEW.pos,
             duration: 1.8,
             ease: 'power2.inOut',
             onComplete: () => {
@@ -1703,7 +1777,7 @@ class GulmoharApp {
             }
         });
         gsap.to(this.controls.target, {
-            x: 0, y: 2.8, z: 0,
+            ...HOME_VIEW.look,
             duration: 1.8,
             ease: 'power2.inOut'
         });
