@@ -453,7 +453,11 @@ function placeholderTexture() {
 
 const _texLoader = new THREE.TextureLoader();
 export function loadPanelTexture(url, onLoad) {
-    _texLoader.load(url, (tex) => {
+    let finalUrl = url;
+    if (typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1') && typeof finalUrl === 'string') {
+        finalUrl = finalUrl.replace('https://firebasestorage.googleapis.com', '/firebasestorage-proxy');
+    }
+    _texLoader.load(finalUrl, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.anisotropy = 4;
         onLoad(tex);

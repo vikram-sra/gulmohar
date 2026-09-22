@@ -551,6 +551,22 @@
     #loader .bar i { display: block; height: 100%; width: 40%; background: var(--gulmohar);
                      animation: slide 1.4s ease-in-out infinite;
                      transition: width 0.4s ease; }
+    #loader.webgl-fallback { background: var(--paper); padding: 24px; }
+    #loader .fallback-card {
+      max-width: 440px; padding: 32px 28px; background: #EEE6D2;
+      border: 1px solid #93A088; text-align: center; color: #253226;
+      font-family: 'Outfit', sans-serif;
+    }
+    #loader .fallback-card h2 {
+      font-family: Newsreader, Georgia, serif; font-size: 1.8rem; margin-bottom: 12px; font-weight: normal;
+    }
+    #loader .fallback-card p {
+      margin-bottom: 22px; line-height: 1.5; color: #5C6C58; font-size: 0.95rem;
+    }
+    #loader .fallback-card a {
+      display: inline-block; padding: 10px 22px; background: #253226; color: #F6F1E3;
+      text-decoration: none; font-size: 0.85rem; letter-spacing: 0.1rem; text-transform: uppercase;
+    }
     @keyframes slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
 
     @media (max-width: 600px) {
@@ -602,33 +618,52 @@
     .fps-touch-zone {
       position: fixed; inset: 0; pointer-events: none; z-index: 800;
     }
-    .fps-joystick-base {
+    .fps-arrow-pad {
       position: absolute;
-      /* Kept in lockstep with FPSNavigator's own _joystickRadius() (same
-         formula, halved) -- that's what decides how far a drag has to travel
-         before it reaches full speed, so the ring has to match it exactly or
-         the visible edge and the actual limit disagree. */
-      width: clamp(84px, 22vw, 120px); height: clamp(84px, 22vw, 120px);
-      border-radius: 50%;
-      background: var(--hud-glass-a);
-      border: 1.5px solid var(--hud-border);
+      bottom: calc(24px + env(safe-area-inset-bottom));
+      left: calc(24px + env(safe-area-inset-left));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 7px;
+      pointer-events: auto;
+      touch-action: none;
+      z-index: 850;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+    .fps-arrow-row {
+      display: flex;
+      gap: 7px;
+    }
+    .fps-arrow-btn {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: var(--hud-btn-bg);
+      border: 1px solid var(--hud-border);
       box-shadow: var(--hud-shadow);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
-      transform: translate(-50%, -50%) scale(0.85);
-      opacity: 0;
-      transition: opacity 0.2s ease, transform 0.2s ease;
-      pointer-events: none;
+      color: var(--hud-ink-strong);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      pointer-events: auto;
+      touch-action: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.1s ease, background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
     }
-    .fps-joystick-thumb {
-      position: absolute;
-      top: 50%; left: 50%;
-      width: 44%; height: 44%;
-      border-radius: 50%;
-      background: var(--hud-btn-bg);
-      border: 1px solid var(--hud-border);
-      box-shadow: inset 0 1px 2px rgba(255,255,255,0.4), 0 2px 6px rgba(0,0,0,0.15);
-      transform: translate(-50%, -50%);
+    .fps-arrow-btn:active, .fps-arrow-btn.active {
+      background: var(--gulmohar);
+      color: #fff;
+      border-color: var(--gulmohar);
+      transform: scale(0.93);
+      box-shadow: 0 0 16px rgba(217, 80, 47, 0.45);
+    }
+    .fps-arrow-btn svg {
       pointer-events: none;
     }
     .fps-sprint-btn, .fps-jump-btn {

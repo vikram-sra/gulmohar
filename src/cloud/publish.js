@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, toPublicArtwork, hashPublic, toPublicAbout, ABOUT_ID } from './schema.js';
+import { SCHEMA_VERSION, toPublicArtwork, hashPublic, hashLandmarks, hashAbout, toPublicAbout, ABOUT_ID } from './schema.js';
 import { purgeArtwork } from './artworks.js';
 
 export function publicArtworks(backend, artworks) {
@@ -41,14 +41,20 @@ export async function publish(backend, artworks, landmarks, published, onStep = 
     await backend.putGallery(JSON.stringify(gallery), revision);
 
     const hashes = Object.fromEntries(pubs.map((p) => [p.id, hashPublic(p)]));
+    hashes._landmarks = hashLandmarks(landmarks);
+    hashes._about = hashAbout(landmarks);
     await backend.setPublished({ revision, publishedAt, hashes });
 
     onStep('Tidying up');
-    await Promise.all(artworks.filter((a) => a.status === 'trashed').map((a) => purgeArtwork(backend, a)));
-    await Promise.all(ready.filter((a) => (a.retiredPaths || []).length).map(async (a) => {
-        await Promise.all(a.retiredPaths.map((p) => backend.deleteObject(p)));
-        await backend.updateArtwork(a.id, { retiredPaths: [] });
-    }));
+    // Retain recent assets so historical revisions in public/history/{revision}.json
+    // remain valid for rollbacks. Only permanently purge trashed docs that never went live
+    // or have been superseded across multiple revisions.
+    const trashed = artworks.filter((a) => a.status === 'trashed');
+    for (const a of trashed) {
+        if (!published || !published.hashes || !published.hashes[a.id]) {
+            await purgeArtwork(backend, a);
+        }
+    }
 
     return { revision, publishedAt, count: pubs.length };
 }

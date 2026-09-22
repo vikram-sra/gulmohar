@@ -22,6 +22,9 @@ export function isCloudConfigured() {
 /** Tokenless download URL; works for any object the Storage rules let the public read. */
 export function publicObjectUrl(path) {
     const bucket = FIREBASE_CONFIG.storageBucket;
+    if (typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+        return `/firebasestorage-proxy/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
+    }
     return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(path)}?alt=media`;
 }
 

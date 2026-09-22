@@ -6,7 +6,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isArtist() {
-      return request.auth != null && request.auth.uid == 'ARTIST_UID';
+      return request.auth != null && request.auth.uid == 'r8iejVjQGnXmLqIKhNUTo6cQmE82';
     }
 
     function validArtwork() {

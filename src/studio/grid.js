@@ -31,7 +31,9 @@ export function createGrid(container, actions) {
         const meta = el('div', { class: 'm' });
         const status = el('div', { class: 's' });
         const placeBtn = el('button', { class: 'btn primary small', type: 'button' });
+        const unplaceBtn = el('button', { class: 'btn small', type: 'button', text: 'Remove from garden' });
         const editBtn = el('button', { class: 'btn small', type: 'button', text: 'Edit' });
+        const deleteBtn = el('button', { class: 'btn small danger', type: 'button', text: 'Delete', 'aria-label': 'Delete painting' });
         const moreBtn = el('button', { class: 'icon-btn more', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'More actions', text: '⋯' });
         // The artwork carries the card: no panel, no border, no button row
         // sitting under every painting. Actions live over the image and only
@@ -40,14 +42,16 @@ export function createGrid(container, actions) {
         const node = el('li', { class: 'card', draggable: 'true' },
             el('div', { class: 'art' },
                 framed.el,
-                el('div', { class: 'overlay' }, placeBtn, editBtn),
+                el('div', { class: 'overlay' }, placeBtn, unplaceBtn, editBtn, deleteBtn),
                 moreBtn),
             el('div', { class: 'cap' }, title, meta, status));
 
-        const card = { el: node, framed, title, meta, status, placeBtn, editBtn, moreBtn, artwork: null, url: undefined };
+        const card = { el: node, framed, title, meta, status, placeBtn, unplaceBtn, editBtn, deleteBtn, moreBtn, artwork: null, url: undefined };
 
         placeBtn.addEventListener('click', () => actions.onPlace(card.artwork));
+        unplaceBtn.addEventListener('click', () => actions.onUnplace(card.artwork));
         editBtn.addEventListener('click', () => actions.onEdit(card.artwork));
+        deleteBtn.addEventListener('click', () => actions.onDelete(card.artwork));
         moreBtn.addEventListener('click', () => {
             if (openMenu && openMenu.parentNode === node) { closeMenu(); return; }
             closeMenu();
@@ -115,6 +119,7 @@ export function createGrid(container, actions) {
         const placed = !!(a.placement && a.placement.placed);
         card.placeBtn.textContent = placed ? 'Move in garden' : 'Place in garden';
         card.placeBtn.disabled = a.status !== 'ready';
+        card.unplaceBtn.hidden = !placed;
         card.framed.update({
             dimensions: a.dimensions, aspect: a.images && a.images.aspect, frame: a.frame,
             alt: `${a.title || 'Untitled'}, framed`

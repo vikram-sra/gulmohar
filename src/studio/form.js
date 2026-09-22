@@ -98,9 +98,19 @@ export function createArtworkForm({ values = {}, onChange = () => {} } = {}) {
             el('div', { class: 'dims' }, width, el('span', { class: 'x', text: '×' }), height, el('div', { class: 'seg', role: 'group', 'aria-label': 'Unit' }, unitBtns)),
             ratioNote),
         el('fieldset', { class: 'field full' }, el('legend', { text: 'Frame' }), el('div', { class: 'swatches' }, swatches)),
-        el('label', { class: 'field', for: availability.id }, label(availability.id, 'Availability'), availability),
-        el('label', { class: 'field check', for: showOnWork.id }, showOnWork, el('span', { text: 'Show on Work page', style: 'text-transform:none;letter-spacing:0;font-size:.92rem;color:var(--ink)' })),
-        el('label', { class: 'field full', for: description.id }, label(description.id, 'Description'), description)
+        (() => {
+            const hasExtraDetails = Boolean(values.description || (values.availability && values.availability !== 'available') || values.showOnWorkPage === false);
+            const extraDetails = el('details', { class: 'expandable-fields' },
+                el('summary', { class: 'expandable-summary' },
+                    el('span', { text: 'Additional details' }),
+                    el('span', { class: 'summary-hint', text: '(availability, description, portfolio visibility)' })),
+                el('div', { class: 'expandable-body' },
+                    el('label', { class: 'field', for: availability.id }, label(availability.id, 'Availability'), availability),
+                    el('label', { class: 'field check', for: showOnWork.id }, showOnWork, el('span', { text: 'Show on Work page', style: 'text-transform:none;letter-spacing:0;font-size:.92rem;color:var(--ink)' })),
+                    el('label', { class: 'field full', for: description.id }, label(description.id, 'Description'), description)));
+            if (hasExtraDetails) extraDetails.open = true;
+            return extraDetails;
+        })()
     );
 
     function getValues() {
@@ -144,6 +154,8 @@ export function createArtworkForm({ values = {}, onChange = () => {} } = {}) {
         showOnWork.checked = true;
         aspect = null; widthTyped = heightTyped = false;
         ratioNote.hidden = true;
+        const extra = root.querySelector('.expandable-fields');
+        if (extra) extra.open = false;
     }
 
     return { el: root, getValues, validate, setImageAspect, reset, focus: () => title.focus() };

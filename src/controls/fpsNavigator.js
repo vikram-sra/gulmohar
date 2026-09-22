@@ -7,8 +7,8 @@ import { groundHeightAt, isInPond } from '../scene/garden.js';
 // brushes past at knee height, and looking slightly further down at the
 // world reads more like a child's-eye view than a comfortable walk.
 const EYE_HEIGHT = 1.78;
-const WALK_SPEED = 4.2;
-const SPRINT_SPEED = 7.5;
+const WALK_SPEED = 6.2;
+const SPRINT_SPEED = 9.8;
 const ACCEL = 32.0;
 const FRICTION = 14.0;
 const MAX_RADIUS = 37.5;
@@ -96,21 +96,21 @@ export class FPSNavigator {
 
             let consumed = true;
             switch (e.code) {
-                case 'KeyW':
                 case 'ArrowUp':
                     this.keys.forward = true;
+                    e.preventDefault();
                     break;
-                case 'KeyS':
                 case 'ArrowDown':
                     this.keys.backward = true;
+                    e.preventDefault();
                     break;
-                case 'KeyA':
                 case 'ArrowLeft':
                     this.keys.left = true;
+                    e.preventDefault();
                     break;
-                case 'KeyD':
                 case 'ArrowRight':
                     this.keys.right = true;
+                    e.preventDefault();
                     break;
                 case 'ShiftLeft':
                 case 'ShiftRight':
@@ -135,19 +135,15 @@ export class FPSNavigator {
 
         window.addEventListener('keyup', (e) => {
             switch (e.code) {
-                case 'KeyW':
                 case 'ArrowUp':
                     this.keys.forward = false;
                     break;
-                case 'KeyS':
                 case 'ArrowDown':
                     this.keys.backward = false;
                     break;
-                case 'KeyA':
                 case 'ArrowLeft':
                     this.keys.left = false;
                     break;
-                case 'KeyD':
                 case 'ArrowRight':
                     this.keys.right = false;
                     break;
@@ -165,8 +161,8 @@ export class FPSNavigator {
     _setupPointer() {
         this.domElement.addEventListener('pointerdown', (e) => {
             if (!this.enabled) return;
-            // Ignore if touching on UI buttons, dock, sprint or jump buttons
-            if (e.target.closest('#dock') || e.target.closest('.fps-sprint-btn') || e.target.closest('.fps-jump-btn') || e.target.closest('header') || e.target.closest('#hover-label')) return;
+            // Ignore if touching on UI buttons, dock, sprint, jump, or arrow pad
+            if (e.target.closest('#dock') || e.target.closest('.fps-sprint-btn') || e.target.closest('.fps-jump-btn') || e.target.closest('.fps-arrow-pad') || e.target.closest('header') || e.target.closest('#hover-label')) return;
 
             if (e.pointerType === 'touch') {
                 this.activeTouches.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -177,26 +173,13 @@ export class FPSNavigator {
                     const pts = Array.from(this.activeTouches.values());
                     this.initialPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
                     this.initialZoomDist = this.targetZoomDistance;
-
-                    if (this.joystickPointerId !== null) {
-                        this.joystickPointerId = null;
-                        this.touchMove.x = 0;
-                        this.touchMove.y = 0;
-                        this._hideJoystick();
-                    }
                     this.lookPointerId = null;
                     return;
                 }
 
                 if (this.isPinching) return;
 
-                // Generous thumb zone for left-hand walk joystick
-                const isLeftZone = e.clientX < window.innerWidth * 0.50 || (e.clientX < window.innerWidth * 0.60 && e.clientY > window.innerHeight * 0.40);
-                if (isLeftZone && this.joystickPointerId === null) {
-                    this.joystickPointerId = e.pointerId;
-                    this.joystickOrigin = { x: e.clientX, y: e.clientY };
-                    this._showJoystick(e.clientX, e.clientY);
-                } else if (this.lookPointerId === null) {
+                if (this.lookPointerId === null) {
                     this.lookPointerId = e.pointerId;
                     this.lastPointerX = e.clientX;
                     this.lastPointerY = e.clientY;
@@ -239,31 +222,7 @@ export class FPSNavigator {
 
                 if (this.isPinching) return;
 
-                if (e.pointerId === this.joystickPointerId) {
-                    const dx = e.clientX - this.joystickOrigin.x;
-                    const dy = e.clientY - this.joystickOrigin.y;
-                    const maxDist = this._joystickRadius();
-                    const dist = Math.hypot(dx, dy);
-                    const clampedDist = Math.min(maxDist, dist);
-                    const angle = Math.atan2(dy, dx);
-
-                    // The thumb visual tracks the raw finger position (still
-                    // feels attached to the touch), but the movement OUTPUT
-                    // goes through a deadzone and an eased curve: a thumb
-                    // resting near centre is a few pixels of unavoidable
-                    // tremor, not intent, and was read as a slow persistent
-                    // drift; a raw-linear response also made the first
-                    // millimetre of travel already near-full speed, which is
-                    // what read as jerky/imprecise starts and stops on a
-                    // touchscreen.
-                    let mag = clampedDist / maxDist;
-                    mag = mag < JOYSTICK_DEADZONE ? 0 : (mag - JOYSTICK_DEADZONE) / (1 - JOYSTICK_DEADZONE);
-                    mag = mag * mag * (3 - 2 * mag); // smoothstep
-
-                    this.touchMove.x = Math.cos(angle) * mag;
-                    this.touchMove.y = -Math.sin(angle) * mag; // inverted Y for forward
-                    this._updateJoystickThumb(Math.cos(angle) * clampedDist, Math.sin(angle) * clampedDist);
-                } else if (e.pointerId === this.lookPointerId) {
+                if (e.pointerId === this.lookPointerId) {
                     const dx = e.clientX - this.lastPointerX;
                     const dy = e.clientY - this.lastPointerY;
                     this.lastPointerX = e.clientX;
@@ -294,12 +253,6 @@ export class FPSNavigator {
                 if (this.activeTouches.size < 2) {
                     this.isPinching = false;
                     this.initialPinchDist = 0;
-                }
-                if (e.pointerId === this.joystickPointerId) {
-                    this.joystickPointerId = null;
-                    this.touchMove.x = 0;
-                    this.touchMove.y = 0;
-                    this._hideJoystick();
                 }
                 if (e.pointerId === this.lookPointerId) {
                     this.lookPointerId = null;
@@ -333,37 +286,116 @@ export class FPSNavigator {
         zone.style.display = 'none';
 
         zone.innerHTML = `
-            <div class="fps-joystick-base" id="fps-joystick-base">
-                <div class="fps-joystick-thumb" id="fps-joystick-thumb"></div>
+            <div class="fps-arrow-pad" id="fps-arrow-pad" aria-label="Movement arrows">
+                <button type="button" class="fps-arrow-btn fps-arrow-up" data-dir="up" aria-label="Forward">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="12" y1="19" x2="12" y2="5"></line>
+                        <polyline points="5 12 12 5 19 12"></polyline>
+                    </svg>
+                </button>
+                <div class="fps-arrow-row">
+                    <button type="button" class="fps-arrow-btn fps-arrow-left" data-dir="left" aria-label="Left">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="19" y1="12" x2="5" y2="12"></line>
+                            <polyline points="12 19 5 12 12 5"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="fps-arrow-btn fps-arrow-down" data-dir="down" aria-label="Backward">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <polyline points="19 12 12 19 5 12"></polyline>
+                        </svg>
+                    </button>
+                    <button type="button" class="fps-arrow-btn fps-arrow-right" data-dir="right" aria-label="Right">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                            <polyline points="12 5 19 12 12 19"></polyline>
+                        </svg>
+                    </button>
+                </div>
             </div>
-            <button class="fps-jump-btn glass-btn" id="fps-jump-btn" aria-label="Jump">
+            <button type="button" class="fps-jump-btn glass-btn" id="fps-jump-btn" aria-label="Jump">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 19V5M5 12l7-7 7 7"/>
                 </svg>
             </button>
-            <button class="fps-sprint-btn glass-btn" id="fps-sprint-toggle" aria-label="Toggle Sprint">
+            <button type="button" class="fps-sprint-btn glass-btn" id="fps-sprint-toggle" aria-label="Toggle Sprint">
                 <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
                     <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                 </svg>
             </button>
             <div class="fps-walk-hint" id="fps-walk-hint">
-                <span class="fps-hint-desktop">WASD to Walk · Space to Jump · Shift to Sprint · Drag to Look</span>
-                <span class="fps-hint-mobile">Touch &amp; Drag to Walk/Look · Tap Jump/Sprint</span>
+                <span class="fps-hint-desktop">Arrow keys to Walk · Space to Jump · Shift to Sprint · Drag to Look</span>
+                <span class="fps-hint-mobile">Touch Arrows to Walk · Drag to Look · Tap Jump/Sprint</span>
             </div>
         `;
 
         document.body.appendChild(zone);
 
         this.touchZone = zone;
-        this.joystickBase = zone.querySelector('#fps-joystick-base');
-        this.joystickThumb = zone.querySelector('#fps-joystick-thumb');
         this.sprintBtn = zone.querySelector('#fps-sprint-toggle');
         this.jumpBtn = zone.querySelector('#fps-jump-btn');
 
-        // pointerdown, not click: it fires the instant a finger lands rather
-        // than waiting for the up-event + the browser's tap/scroll
-        // disambiguation, which is the same latency jumpBtn below already
-        // avoids.
+        const arrowPad = zone.querySelector('#fps-arrow-pad');
+        const arrowBtns = zone.querySelectorAll('.fps-arrow-btn');
+        this._activeArrowPointers = new Map();
+        this._arrowBtns = arrowBtns;
+
+        const updateArrowKeys = () => {
+            const activeDirs = new Set(this._activeArrowPointers.values());
+            this.keys.forward = activeDirs.has('up');
+            this.keys.backward = activeDirs.has('down');
+            this.keys.left = activeDirs.has('left');
+            this.keys.right = activeDirs.has('right');
+
+            arrowBtns.forEach((btn) => {
+                const dir = btn.dataset.dir;
+                btn.classList.toggle('active', activeDirs.has(dir));
+            });
+
+            if (!this.enabled && (this.keys.forward || this.keys.backward || this.keys.left || this.keys.right)) {
+                if (this.onModeChange) this.onModeChange(true);
+            }
+        };
+
+        const getDirFromPoint = (x, y) => {
+            const el = document.elementFromPoint(x, y);
+            const btn = el && el.closest('.fps-arrow-btn');
+            return btn ? btn.dataset.dir : null;
+        };
+
+        arrowPad.addEventListener('pointerdown', (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            const dir = getDirFromPoint(e.clientX, e.clientY);
+            if (dir) {
+                this._activeArrowPointers.set(e.pointerId, dir);
+                updateArrowKeys();
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (this._activeArrowPointers.has(e.pointerId)) {
+                const dir = getDirFromPoint(e.clientX, e.clientY);
+                if (dir) {
+                    this._activeArrowPointers.set(e.pointerId, dir);
+                } else {
+                    this._activeArrowPointers.delete(e.pointerId);
+                }
+                updateArrowKeys();
+            }
+        });
+
+        const releaseArrow = (e) => {
+            if (this._activeArrowPointers.has(e.pointerId)) {
+                this._activeArrowPointers.delete(e.pointerId);
+                updateArrowKeys();
+            }
+        };
+
+        window.addEventListener('pointerup', releaseArrow);
+        window.addEventListener('pointercancel', releaseArrow);
+
         this.sprintBtn.addEventListener('pointerdown', (e) => {
             e.stopPropagation();
             e.preventDefault();
@@ -382,62 +414,10 @@ export class FPSNavigator {
             });
         }
 
-        // Hide hint after 5 seconds
         setTimeout(() => {
             const hint = document.getElementById('fps-walk-hint');
             if (hint) hint.classList.add('fps-hint-fade');
         }, 5000);
-    }
-
-    /**
-     * The joystick's own radius in CSS px, matching `.fps-joystick-base`'s
-     * `clamp(84px, 22vw, 120px)` diameter exactly (same formula, halved) --
-     * one source of truth for how far a thumb can travel, so the visual ring
-     * and the drag distance that reaches full speed never disagree. Scales
-     * with viewport width so a small phone and a tablet each get a stick
-     * that occupies roughly the same fraction of a thumb's comfortable
-     * reach, rather than a fixed pixel size that reads as cramped on one and
-     * tiny-in-the-corner on the other.
-     */
-    _joystickRadius() {
-        return Math.max(84, Math.min(120, window.innerWidth * 0.22)) / 2;
-    }
-
-    _resetJoystickRestPosition() {
-        if (!this.joystickBase) return;
-        const isTouch = ('ontouchstart' in window || navigator.maxTouchPoints > 0);
-        if (isTouch) {
-            const rx = Math.max(64, Math.min(90, window.innerWidth * 0.20));
-            const ry = window.innerHeight - Math.max(90, Math.min(130, window.innerHeight * 0.18));
-            this.joystickBase.style.left = `${rx}px`;
-            this.joystickBase.style.top = `${ry}px`;
-            this.joystickBase.style.opacity = '0.45';
-            this.joystickBase.style.transform = 'translate(-50%, -50%) scale(0.95)';
-        } else {
-            this.joystickBase.style.opacity = '0';
-            this.joystickBase.style.transform = 'translate(-50%, -50%) scale(0.85)';
-        }
-        if (this.joystickThumb) {
-            this.joystickThumb.style.transform = 'translate(-50%, -50%)';
-        }
-    }
-
-    _showJoystick(x, y) {
-        if (!this.joystickBase) return;
-        this.joystickBase.style.left = `${x}px`;
-        this.joystickBase.style.top = `${y}px`;
-        this.joystickBase.style.opacity = '1';
-        this.joystickBase.style.transform = 'translate(-50%, -50%) scale(1)';
-        this.joystickThumb.style.transform = 'translate(-50%, -50%)';
-    }
-
-    _updateJoystickThumb(dx, dy) {
-        if (!this.joystickThumb) return;
-        this.joystickThumb.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
-    }
-
-    _hideJoystick() {
-        this._resetJoystickRestPosition();
     }
 
     enable(startPosition = null, startLookTarget = null) {
@@ -495,7 +475,6 @@ export class FPSNavigator {
         this.velocity.set(0, 0, 0);
         if (this.touchZone) {
             this.touchZone.style.display = 'block';
-            this._resetJoystickRestPosition();
             const hint = document.getElementById('fps-walk-hint');
             if (hint) {
                 hint.classList.remove('fps-hint-fade');
@@ -520,6 +499,8 @@ export class FPSNavigator {
         this.keys.left = false;
         this.keys.right = false;
         this.keys.sprint = false;
+        if (this._activeArrowPointers) this._activeArrowPointers.clear();
+        if (this._arrowBtns) this._arrowBtns.forEach((b) => b.classList.remove('active'));
         this.touchMove.x = 0;
         this.touchMove.y = 0;
         this.heightOffset = 0;

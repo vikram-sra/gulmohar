@@ -123,7 +123,14 @@ export function createFirebaseBackend() {
         publicUrl: (path) => publicObjectUrl(path),
 
         // Draft images are private; the studio uses the token URL stored at upload.
-        imageUrl: async (img) => (img && img.url) || null
+        imageUrl: async (img) => {
+            if (!img) return null;
+            let u = img.url || null;
+            if (u && typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+                u = u.replace('https://firebasestorage.googleapis.com', '/firebasestorage-proxy');
+            }
+            return u;
+        }
     };
     return _backend;
 }

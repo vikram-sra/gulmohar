@@ -116,3 +116,143 @@ export function createUploadSection(container, { onUpload }) {
 
     return { isBusy: () => busy, hasUnsaved: () => busy || !!processed };
 }
+
+/**
+ * Dynamic, expandable modal for adding a new painting.
+ */
+export function openAddPaintingDialog({ onUpload }) {
+    let processed = null;
+    let previewUrl = null;
+    let busy = false;
+    let isExpanded = false;
+
+    const framed = createFramed();
+    const fileInput = el('input', { type: 'file', accept: 'image/*', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true' });
+    const chooseBtn = el('button', { type: 'button', class: 'btn primary', text: 'Choose painting' });
+    const hint = el('p', { class: 'hint', text: 'or drop an image here — JPEG, PNG, WebP' });
+    const changeBtn = el('button', { type: 'button', class: 'btn small', text: 'Choose different image', hidden: true });
+    const drop = el('div', { class: 'drop dynamic-drop' }, chooseBtn, hint, changeBtn, fileInput);
+
+    const progress = el('div', { class: 'progress', hidden: true }, el('i'));
+    const status = el('span', { class: 'status-note', role: 'status', 'aria-live': 'polite' });
+    const addBtn = el('button', { type: 'submit', class: 'btn accent', text: 'Add to studio', disabled: true });
+    const cancelBtn = el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => { if (!busy) dlg.close(); } });
+
+    const form = createArtworkForm({
+        onChange: (v) => framed.update({ dimensions: v.dimensions, frame: v.frame })
+    });
+
+    const expandBtn = el('button', {
+        type: 'button', class: 'btn small modal-tool-btn', 'aria-label': 'Expand modal', title: 'Toggle expanded view'
+    }, el('span', { class: 'expand-icon', text: '⤢' }), el('span', { class: 'expand-text', text: 'Expand' }));
+
+    const closeBtn = el('button', {
+        type: 'button', class: 'icon-btn modal-close-btn', 'aria-label': 'Close dialog', text: '✕',
+        onclick: () => { if (!busy) dlg.close(); }
+    });
+
+    const modalHead = el('div', { class: 'modal-head' },
+        el('h3', { text: 'Add a painting' }),
+        el('div', { class: 'modal-tools' }, expandBtn, closeBtn));
+
+    const formEl = el('form', { method: 'dialog', class: 'inner', novalidate: true },
+        modalHead,
+        el('div', { class: 'upload' }, drop, form.el),
+        el('div', { class: 'bottom' },
+            status,
+            el('div', { class: 'right-actions' }, cancelBtn, addBtn)),
+        progress);
+
+    const dlg = el('dialog', { class: 'panel add-modal', 'aria-label': 'Add a painting' }, formEl);
+
+    expandBtn.addEventListener('click', () => {
+        isExpanded = !isExpanded;
+        dlg.classList.toggle('expanded', isExpanded);
+        expandBtn.querySelector('.expand-icon').textContent = isExpanded ? '⤡' : '⤢';
+        expandBtn.querySelector('.expand-text').textContent = isExpanded ? 'Compact' : 'Expand';
+    });
+
+    const choose = () => { if (!busy) fileInput.click(); };
+    chooseBtn.addEventListener('click', choose);
+    changeBtn.addEventListener('click', choose);
+    fileInput.addEventListener('change', () => { if (fileInput.files[0]) take(fileInput.files[0]); fileInput.value = ''; });
+
+    ['dragenter', 'dragover'].forEach((t) => drop.addEventListener(t, (e) => {
+        if (![...(e.dataTransfer?.items || [])].some((i) => i.kind === 'file')) return;
+        e.preventDefault();
+        drop.classList.add('over');
+    }));
+    ['dragleave', 'drop'].forEach((t) => drop.addEventListener(t, () => drop.classList.remove('over')));
+    drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/'));
+        if (file) take(file);
+    });
+
+    async function take(file) {
+        status.textContent = 'Preparing image…';
+        addBtn.disabled = true;
+        try {
+            processed = await processImage(file);
+        } catch (err) {
+            processed = null;
+            status.textContent = '';
+            toast(err.message || 'Could not read that image.', { error: true, ms: 5000 });
+            return;
+        }
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        previewUrl = URL.createObjectURL(processed.sizes.medium.blob);
+        if (!framed.el.isConnected) drop.prepend(framed.el);
+        chooseBtn.hidden = true;
+        hint.hidden = true;
+        changeBtn.hidden = false;
+        const title = form.getValues().title;
+        form.setImageAspect(processed.aspect);
+        const v = form.getValues();
+        framed.update({ dimensions: v.dimensions, aspect: processed.aspect, frame: v.frame, url: previewUrl, alt: title || 'Chosen painting' });
+        if (!title) form.focus();
+        status.textContent = `${processed.widthPx} × ${processed.heightPx} px`;
+        addBtn.disabled = false;
+    }
+
+    formEl.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (busy || !processed) return;
+        const problem = form.validate();
+        if (problem) { toast(problem, { error: true }); return; }
+        busy = true;
+        addBtn.disabled = true;
+        cancelBtn.disabled = true;
+        progress.hidden = false;
+        const bar = progress.firstChild;
+        bar.style.width = '0%';
+        status.textContent = 'Uploading…';
+        try {
+            await onUpload(form.getValues(), processed, (f) => {
+                const pct = Math.round(f * 100);
+                bar.style.width = `${pct}%`;
+                status.textContent = `Uploading ${pct}%…`;
+            });
+            toast('Added. Place it in the garden whenever you’re ready.');
+            dlg.close();
+        } catch (err) {
+            console.error(err);
+            status.textContent = 'Upload failed.';
+            toast(`Upload failed: ${err.message || err}. Your details are kept — try again.`, { error: true, ms: 6000 });
+            addBtn.disabled = false;
+            cancelBtn.disabled = false;
+        } finally {
+            busy = false;
+            progress.hidden = true;
+        }
+    });
+
+    dlg.addEventListener('close', () => {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        dlg.remove();
+    });
+
+    document.body.append(dlg);
+    dlg.showModal();
+    return dlg;
+}

@@ -73,6 +73,7 @@ export async function replaceArtworkImage(backend, artwork, processed, onProgres
     const retired = [old.thumb, old.medium, old.display, old.original].filter(Boolean).map((i) => i.path);
     await backend.updateArtwork(artwork.id, {
         images,
+        status: 'ready',
         retiredPaths: [...(artwork.retiredPaths || []), ...retired]
     });
 }

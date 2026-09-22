@@ -157,6 +157,14 @@
     border-color: rgba(217, 80, 47, 0.5);
 }
 .place-btn.primary:hover:not(:disabled) { background: rgba(217, 80, 47, 1); }
+.place-btn.danger {
+    background: rgba(196, 43, 28, 0.12);
+    color: #c93b2b;
+    border-color: rgba(196, 43, 28, 0.35);
+}
+.place-btn.danger:hover:not(:disabled) {
+    background: rgba(196, 43, 28, 0.22);
+}
 .place-btn.ghost { background: transparent; border-color: transparent; color: #5C6C58; }
 .place-btn.round { width: 32px; padding: 0; font-size: 15px; }
 

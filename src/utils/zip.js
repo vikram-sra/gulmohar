@@ -89,3 +89,33 @@ export function writeZip(files) {
 
     return new Blob([...localParts, ...centralParts, new Uint8Array(end.buffer)], { type: 'application/zip' });
 }
+
+/**
+ * Reads a stored (uncompressed) ZIP buffer produced by writeZip.
+ * @param {ArrayBuffer} buffer
+ * @returns {Array<{name: string, data: Uint8Array}>}
+ */
+export function readZip(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const files = [];
+    const decoder = new TextDecoder();
+    let offset = 0;
+
+    while (offset + 30 <= bytes.length) {
+        const sig = view.getUint32(offset, true);
+        if (sig !== 0x04034b50) break; // central directory reached
+        const compSize = view.getUint32(offset + 18, true);
+        const nameLen = view.getUint16(offset + 26, true);
+        const extraLen = view.getUint16(offset + 28, true);
+
+        const nameBytes = bytes.subarray(offset + 30, offset + 30 + nameLen);
+        const name = decoder.decode(nameBytes);
+        const dataOffset = offset + 30 + nameLen + extraLen;
+        const data = bytes.subarray(dataOffset, dataOffset + compSize);
+
+        files.push({ name, data });
+        offset = dataOffset + compSize;
+    }
+    return files;
+}

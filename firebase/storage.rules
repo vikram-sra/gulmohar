@@ -9,7 +9,7 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     function isArtist() {
-      return request.auth != null && request.auth.uid == 'ARTIST_UID';
+      return request.auth != null && request.auth.uid == 'r8iejVjQGnXmLqIKhNUTo6cQmE82';
     }
 
     match /public/gallery.json {

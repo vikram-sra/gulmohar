@@ -32,8 +32,8 @@ const MOUNTS = {
 };
 const ORDER = ['easel', 'ground', 'rope', 'surface'];
 
-const SIZE_MIN = 0.5, SIZE_MAX = 4.0, SIZE_STEP = 0.1;
-const AIM_INTERVAL_MS = 66;            // ~15Hz; a ghost does not need 60
+const SIZE_MIN = 0.5, SIZE_MAX = 4.0, SIZE_STEP = 0.15;
+const AIM_INTERVAL_MS = 16;            // ~60Hz fluid aim tracking
 const CARRY_DISTANCE = 0.8;            // metres in front of the eye
 const CARRY_SCREEN_FRACTION = 0.22;    // of the viewport's height
 const ROPE_TOP = 2.35;                 // where the frame's top edge hangs
@@ -431,6 +431,37 @@ export async function attachPlaceMode(app, artworkId) {
         });
         const moveBtn = btn('Move it', '', pickUp);
         const saveBtn = btn('Save', 'primary', save);
+        const unplace = async () => {
+            if (!window.confirm('Remove this painting from the garden?')) return;
+            state.saving = true;
+            hud.render();
+            try {
+                await backend.updateArtwork(artwork.id, {
+                    placement: { placed: false }
+                });
+                artwork.placement = { ...(artwork.placement || {}), placed: false };
+                if (live) {
+                    garden.remove(live.group);
+                    live = null;
+                }
+                if (furniture) {
+                    garden.remove(furniture);
+                    furniture = null;
+                }
+                state.phase = 'carrying';
+                carry.group.visible = true;
+                state.dirty = false;
+                state.optionsOpen = false;
+                hud.toast('Painting removed from garden.');
+            } catch (err) {
+                console.error(err);
+                hud.toast(`Could not remove: ${err.message || err}`, true);
+            } finally {
+                state.saving = false;
+                hud.render();
+            }
+        };
+        const unplaceBtn = btn('Remove from garden', 'danger', unplace);
         const smaller = btn('−', 'round', () => adjust(-SIZE_STEP, 0));
         const bigger = btn('+', 'round', () => adjust(SIZE_STEP, 0));
         const rotL = btn('↺', 'round', () => adjust(0, -Math.PI / 12));
@@ -479,6 +510,9 @@ export async function attachPlaceMode(app, artworkId) {
             saveBtn.hidden = carrying;
             saveBtn.disabled = state.saving || !state.dirty;
             saveBtn.textContent = state.saving ? 'Saving…' : state.dirty ? 'Save' : 'Saved';
+            const hasSavedPlacement = !!(artwork.placement && artwork.placement.placed);
+            unplaceBtn.hidden = !(state.phase === 'placed' || hasSavedPlacement);
+            unplaceBtn.disabled = state.saving;
             [smaller, sizeLabel, bigger].forEach((e) => { e.hidden = carrying; });
             // Rotation is meaningless on a surface: the bark decides the angle.
             rotL.hidden = rotR.hidden = carrying || state.mount === 'surface';
@@ -495,7 +529,7 @@ export async function attachPlaceMode(app, artworkId) {
             toastTimer = setTimeout(() => toastEl.classList.remove('show'), 3400);
         }
 
-        bar.append(placeBtn, moveBtn, smaller, sizeLabel, bigger, rotL, rotR, saveBtn, exit);
+        bar.append(placeBtn, moveBtn, smaller, sizeLabel, bigger, rotL, rotR, saveBtn, unplaceBtn, exit);
         root.append(reticleEl, head, options, bar, toastEl);
         return { root, render, renderOptions, toast };
     }
@@ -516,23 +550,81 @@ export async function attachPlaceMode(app, artworkId) {
     }
     window.addEventListener('keydown', onKey);
 
-    // Coming back to something already placed: show it where it is, so "Move
-    // in garden" starts from the truth rather than from scratch.
-    if (saved) {
+    // Coming back to something already placed: show it where it is and take
+    // the artist right in front of it, so "Move in garden" starts from the truth.
+    if (saved && Array.isArray(saved.position) && saved.position.length >= 3) {
         const p = new THREE.Vector3().fromArray(saved.position);
         const mount = normalizeMount(saved.mount);
-        const yaw = (saved.rotation && saved.rotation[1]) || 0;
+        const rotArray = Array.isArray(saved.rotation) ? saved.rotation : [0, 0, 0];
+        const rot = new THREE.Euler(rotArray[0] || 0, rotArray[1] || 0, rotArray[2] || 0, 'YXZ');
+        const yaw = rot.y;
+
+        state.mount = mount;
+        state.size = saved.scale || 1;
+        state.phase = 'placed';
+        state.dirty = false;
+        carry.group.visible = false;
+
         state.aim = {
-            point: p,
+            point: p.clone(),
             normal: new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw)),
             kind: mount === 'surface' ? 'surface' : 'ground',
             ground: groundHeightAt(p.x, p.z),
             canopy: canopyOver(surfaces.canopies, p.x, p.z)
         };
-        if (showLive(mount)) {
-            state.phase = 'placed';
-            state.dirty = false;
-            carry.group.visible = false;
+
+        if (!live) {
+            live = createPaintingMesh(widthIn, heightIn, artwork.frame);
+            garden.add(live.group);
+            if (carry.panel.material.map) {
+                live.panel.material.map = carry.panel.material.map;
+                live.panel.material.needsUpdate = true;
+            }
+        }
+        live.group.visible = true;
+        live.group.position.copy(p);
+        live.group.rotation.copy(rot);
+        live.group.scale.setScalar(state.size);
+
+        if (furniture) { live.group.remove(furniture); furniture = null; }
+        if (mount === 'easel' || mount === 'rope' || mount === 'surface') {
+            const drop = Math.max((p.y - state.aim.ground) / state.size, 0);
+            const rise = saved.rise || (mount === 'rope' ? ROPE_LENGTH : 0);
+            furniture = createMountFurniture(mount, w, h, rise / state.size, drop);
+            if (furniture) live.group.add(furniture);
+        }
+        app.renderer.shadowMap.needsUpdate = true;
+
+        // Transport the camera right in front of the painting, facing its center
+        live.group.updateMatrixWorld(true);
+        const normal = new THREE.Vector3(0, 0, 1).applyQuaternion(live.group.quaternion);
+        const front = new THREE.Vector3(normal.x, 0, normal.z).normalize();
+        if (front.lengthSq() < 0.1) front.set(Math.sin(yaw), 0, Math.cos(yaw));
+        const viewDist = Math.max(2.4, Math.max(w, h) * state.size * 1.6);
+        const camPos = p.clone().addScaledVector(front, viewDist);
+        camPos.y = groundHeightAt(camPos.x, camPos.z) + 1.78;
+
+        const dx = p.x - camPos.x;
+        const dz = p.z - camPos.z;
+        const dy = p.y - camPos.y;
+        const targetYaw = Math.atan2(-dx, -dz);
+        const targetPitch = Math.atan2(dy, Math.hypot(dx, dz));
+
+        app.camera.position.copy(camPos);
+        app.camera.lookAt(p.x, p.y, p.z);
+
+        if (app.fpsNavigator) {
+            app.fpsNavigator.position.copy(camPos);
+            app.fpsNavigator.targetY = camPos.y;
+            app.fpsNavigator.currentGroundY = groundHeightAt(camPos.x, camPos.z);
+            app.fpsNavigator.heightOffset = 0;
+            app.fpsNavigator.zoomDistance = 0;
+            app.fpsNavigator.targetZoomDistance = 0;
+            app.fpsNavigator.bobCycle = 0;
+            app.fpsNavigator.bobOffset.set(0, 0, 0);
+            app.fpsNavigator.yaw = app.fpsNavigator.targetYaw = targetYaw;
+            app.fpsNavigator.pitch = app.fpsNavigator.targetPitch = targetPitch;
+            app.fpsNavigator.velocity.set(0, 0, 0);
         }
     }
     hud.render();
@@ -593,8 +685,11 @@ async function loadArtworkTexture(backend, artwork) {
     const img = artwork.images && (artwork.images.display || artwork.images.medium || artwork.images.thumb);
     if (!img) return null;
     try {
-        const url = await backend.imageUrl(img);
+        let url = await backend.imageUrl(img);
         if (!url) return null;
+        if (typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1') && typeof url === 'string') {
+            url = url.replace('https://firebasestorage.googleapis.com', '/firebasestorage-proxy');
+        }
         return await new Promise((resolve) => loadPanelTexture(url, resolve));
     } catch {
         return null;

@@ -17,10 +17,12 @@ export function el(tag, attrs = {}, ...children) {
 
 let toastTimer = null;
 export function toast(message, { error = false, ms = 3200 } = {}) {
+    const host = document.querySelector('dialog[open]') || document.body;
     let t = document.getElementById('toast');
-    if (!t) {
+    if (!t || t.parentElement !== host) {
+        if (t) t.remove();
         t = el('div', { id: 'toast', class: 'toast', role: 'status', 'aria-live': 'polite' });
-        document.body.append(t);
+        host.append(t);
     }
     t.textContent = message;
     t.classList.toggle('error', error);

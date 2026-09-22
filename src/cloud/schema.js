@@ -127,8 +127,22 @@ export function hashPublic(pub) {
     return (h >>> 0).toString(16);
 }
 
+export function hashLandmarks(landmarks) {
+    const pub = (landmarks || [])
+        .filter((l) => l.id !== ABOUT_ID)
+        .filter((l) => l.title || l.meta)
+        .map((l) => ({ id: l.id, title: l.title || '', meta: l.meta || '' }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    return hashPublic(pub);
+}
+
+export function hashAbout(landmarks) {
+    const pub = toPublicAbout(landmarks);
+    return hashPublic(pub || {});
+}
+
 /** Diff the live drafts against the last publish. */
-export function pendingChanges(publicArtworks, publishedHashes = {}) {
+export function pendingChanges(publicArtworks, publishedHashes = {}, landmarks = null) {
     const live = new Set();
     let added = 0, changed = 0;
     for (const pub of publicArtworks) {
@@ -137,8 +151,32 @@ export function pendingChanges(publicArtworks, publishedHashes = {}) {
         if (!prev) added++;
         else if (prev !== hashPublic(pub)) changed++;
     }
-    const removed = Object.keys(publishedHashes).filter((id) => !live.has(id)).length;
-    return { added, changed, removed, total: added + changed + removed };
+    const removed = Object.keys(publishedHashes).filter((id) => !id.startsWith('_') && !live.has(id)).length;
+
+    let contentChanges = 0;
+    let aboutChanged = false;
+    let landmarksChanged = false;
+    if (landmarks) {
+        const prevAbout = publishedHashes._about;
+        const currAbout = hashAbout(landmarks);
+        if (prevAbout !== undefined ? prevAbout !== currAbout : (currAbout !== hashPublic({}) && Object.keys(publishedHashes).length > 0)) {
+            contentChanges++;
+            aboutChanged = true;
+        }
+
+        const prevLandmarks = publishedHashes._landmarks;
+        const currLandmarks = hashLandmarks(landmarks);
+        if (prevLandmarks !== undefined ? prevLandmarks !== currLandmarks : (currLandmarks !== hashPublic([]) && Object.keys(publishedHashes).length > 0)) {
+            contentChanges++;
+            landmarksChanged = true;
+        }
+    }
+
+    return {
+        added, changed, removed, contentChanges,
+        aboutChanged, landmarksChanged,
+        total: added + changed + removed + contentChanges
+    };
 }
 
 export function slugId(title) {

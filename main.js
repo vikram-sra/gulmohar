@@ -48,6 +48,8 @@ function blend3Colors(out, c1, w1, c2, w2, c3, w3) {
     return out;
 }
 
+const animDuration = (s) => (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.05 : s);
+
 const luma = (c) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 
 // The sky, the sun's colour, the fog and the pond's reflections all come
@@ -291,6 +293,14 @@ class GulmoharApp {
         this._maybeStartIntro();
     }
 
+    _showWebGLFallback() {
+        const loader = document.getElementById('loader');
+        if (!loader) return;
+        loader.className = 'webgl-fallback';
+        loader.innerHTML = '<div class="fallback-card"><h2>3D Garden Unavailable</h2><p>WebGL is unsupported on this device. You can view all paintings in the portfolio.</p><a href="work/">View Portfolio &rarr;</a></div>';
+        loader.style.opacity = '1';
+    }
+
     // -- setup --------------------------------------------------------------
 
     init() {
@@ -312,13 +322,19 @@ class GulmoharApp {
         this.camera.position.set(HOME_VIEW.pos.x * 1.05, HOME_VIEW.pos.y + 2.5, HOME_VIEW.pos.z * 1.05);
         this.camera.lookAt(HOME_VIEW.look.x, HOME_VIEW.look.y, HOME_VIEW.look.z);
 
-        this.renderer = new THREE.WebGLRenderer({
-            antialias: QUALITY.antialias,   // MSAA plus a composer is heavy bandwidth on phones
-            powerPreference: 'high-performance',
-            alpha: false,
-            stencil: false,
-            depth: true
-        });
+        try {
+            this.renderer = new THREE.WebGLRenderer({
+                antialias: QUALITY.antialias,   // MSAA plus a composer is heavy bandwidth on phones
+                powerPreference: 'high-performance',
+                alpha: false,
+                stencil: false,
+                depth: true
+            });
+        } catch (err) {
+            console.error('WebGL unavailable:', err);
+            this._showWebGLFallback();
+            return;
+        }
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, QUALITY.pixelRatioCap));
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -1345,8 +1361,8 @@ class GulmoharApp {
             this._setPaintingFocus(targetData.id, pos.distanceTo(lookAt));
             gsap.killTweensOf(this.camera.position);
             gsap.killTweensOf(this.controls.target);
-            gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: 1.4, ease: 'power2.inOut' });
-            gsap.to(this.controls.target, { x: lookAt.x, y: lookAt.y, z: lookAt.z, duration: 1.4, ease: 'power2.inOut' });
+            gsap.to(this.camera.position, { x: pos.x, y: pos.y, z: pos.z, duration: animDuration(1.4), ease: 'power2.inOut' });
+            gsap.to(this.controls.target, { x: lookAt.x, y: lookAt.y, z: lookAt.z, duration: animDuration(1.4), ease: 'power2.inOut' });
             this.showLabelFor(targetData);
             this.setUIVisibility(true);
             return;
@@ -1355,7 +1371,7 @@ class GulmoharApp {
         if (this.navMode === 'walk') {
             // A landmark still fast-travels to it on foot -- that is
             // choosing a destination to walk toward, unlike a painting.
-            this.fpsNavigator.fastTravelTo(targetData.cameraTarget.pos.x, targetData.cameraTarget.pos.z, targetData.cameraTarget.lookAt, 1.3);
+            this.fpsNavigator.fastTravelTo(targetData.cameraTarget.pos.x, targetData.cameraTarget.pos.z, targetData.cameraTarget.lookAt, animDuration(1.3));
             this.showLabelFor(targetData);
             this.setUIVisibility(true);
             return;
@@ -1375,12 +1391,12 @@ class GulmoharApp {
             gsap.killTweensOf(this.controls.target);
             gsap.to(this.camera.position, {
                 x: pos.x, y: pos.y, z: pos.z,
-                duration: 1.4,
+                duration: animDuration(1.4),
                 ease: 'power2.inOut'
             });
             gsap.to(this.controls.target, {
                 x: lookAt.x, y: lookAt.y, z: lookAt.z,
-                duration: 1.4,
+                duration: animDuration(1.4),
                 ease: 'power2.inOut'
             });
             this.showLabelFor(targetData);
@@ -1841,7 +1857,7 @@ class GulmoharApp {
 
         gsap.to(this.camera.position, {
             ...HOME_VIEW.pos,
-            duration: 1.8,
+            duration: animDuration(1.8),
             ease: 'power2.inOut',
             onComplete: () => {
                 if (!this.motionPaused && this._introStarted) this.controls.autoRotate = true;
@@ -1849,7 +1865,7 @@ class GulmoharApp {
         });
         gsap.to(this.controls.target, {
             ...HOME_VIEW.look,
-            duration: 1.8,
+            duration: animDuration(1.8),
             ease: 'power2.inOut'
         });
         this.setUIVisibility(true);
@@ -1895,7 +1911,7 @@ class GulmoharApp {
         const newDist = Math.min(this.controls.maxDistance * 0.92, dist * 1.55);
         if (newDist <= dist) return;
         const newPos = this.controls.target.clone().addScaledVector(offset.normalize(), newDist);
-        gsap.to(this.camera.position, { x: newPos.x, y: newPos.y, z: newPos.z, duration: 1.5, ease: 'sine.inOut' });
+        gsap.to(this.camera.position, { x: newPos.x, y: newPos.y, z: newPos.z, duration: animDuration(1.5), ease: 'sine.inOut' });
     }
 
     onResize() {
@@ -2192,7 +2208,7 @@ class GulmoharApp {
             btn.addEventListener('pointercancel', cancel);
         };
 
-        const walkBtn = createBtn(icons.walk, () => this.toggleNavMode(), 'Walk / Explore · WASD or touch to navigate');
+        const walkBtn = createBtn(icons.walk, () => this.toggleNavMode(), 'Walk / Explore · Arrow keys or touch to navigate');
         this.walkBtn = walkBtn;
 
         // No onClick: the long-press handler owns both paths, or a tap fires twice.

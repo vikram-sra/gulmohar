@@ -21,7 +21,7 @@ import * as THREE from 'three';
 const TIERS = {
     low: {
         floorLeafCount: 10, microPlantCount: 16,
-        grassCount: 18000, grassRadius: 36, backgroundTrees: 2, vegClumpCount: 20, denseGrassCount: 6,
+        grassCount: 18000, grassRadius: 36, backgroundTrees: 0, vegClumpCount: 20, denseGrassCount: 6,
         shadowMapSize: 1024, shadowIntervalMs: 45, shadowType: THREE.PCFShadowMap,
         shadowRadius: 1.0, foliageReceiveShadow: false,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2, maxTextureSize: 512,
@@ -234,7 +234,7 @@ export function sampleFrame(dtMs, wasShadowFrame) {
 }
 
 function down() {
-    if (QUALITY.pixelRatioScale > 0.75) QUALITY.pixelRatioScale = 0.8;
+    if (QUALITY.pixelRatioScale > 0.85) QUALITY.pixelRatioScale = 0.8;
     else QUALITY.instanceScale = 0.5;
     // Thin the shadow cadence too; from every-frame, step to every other.
     QUALITY.shadowIntervalMs = Math.min(120, Math.max(24, QUALITY.shadowIntervalMs * 1.6));

@@ -53,7 +53,7 @@ const found = FIREBASE_MARKERS.filter((m) => src.includes(m));
 // forever unnoticed.
 // 901: clickable navigation markers -- one projected, distance-scaled DOM
 // ring per place worth going, plus the hover-marker and tilt-clamp work.
-const BASELINE_KB = 901; // raised for trunk/painting FPS collision, the frame/mount billboard split, and dolly-to-fill-screen zoom -- real, measured growth
+const BASELINE_KB = 905; // raised for on-screen touch arrow navigation and placement camera orientation
 const BUDGET_KB = BASELINE_KB + 3;
 
 let failed = false;

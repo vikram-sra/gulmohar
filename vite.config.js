@@ -10,6 +10,16 @@ export default defineConfig({
     // /about/ would silently serve the 3D scene in dev while working in
     // production -- the worst kind of difference. 'mpa' turns that fallback off.
     appType: 'mpa',
+    server: {
+        proxy: {
+            '/firebasestorage-proxy': {
+                target: 'https://firebasestorage.googleapis.com',
+                changeOrigin: true,
+                followRedirects: true,
+                rewrite: (path) => path.replace(/^\/firebasestorage-proxy/, '')
+            }
+        }
+    },
     build: {
         rollupOptions: {
             // Three real entry points. Without listing them, only index.html is
