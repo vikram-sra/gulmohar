@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/verify-release.mjs"
+    "test": "node scripts/verify-release.mjs",
+    "test:placement": "node --experimental-vm-modules scripts/verify-placement.mjs",
+    "test:dof": "node scripts/verify-dof.mjs"
   },
   "devDependencies": {
     "vite": "^7.2.4"

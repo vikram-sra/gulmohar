@@ -209,6 +209,12 @@ export function isGroundClear(x, z, margin = 0) {
     return true;
 }
 
+/** Shared path footprint for placement clearance checks. */
+export function isOnPath(x, z, margin = 0) {
+    const theta = Math.atan2(z, x);
+    return Math.abs(Math.hypot(x, z) - pathRadiusAt(theta)) < pathWidthAt(theta) / 2 + .35 + margin;
+}
+
 /**
  * Loads all 3D assets for the garden and constructs the pathways, central bed,
  * landmarks, and interactive targets.

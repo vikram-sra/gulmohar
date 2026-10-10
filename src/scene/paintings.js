@@ -4,7 +4,7 @@ import { getAssetUrl } from '../utils/paths.js';
 // Firebase SDK itself must never reach the visitor bundle. Only
 // cloud/backend.js dynamic-imports firebaseBackend.js, and nothing here
 // calls it.
-import { galleryUrl } from '../cloud/config.js';
+import { readGallery } from '../cloud/gallery.js';
 import { toPlacementRecord } from '../cloud/schema.js';
 import { QUALITY } from '../quality.js';
 import { groundHeightAt, insideGazebo } from './garden.js';
@@ -611,28 +611,14 @@ export function mountPainting(record, gardenGroup, canopies = null) {
  * has to give up and fall back -- AbortSignal.timeout, not a bare fetch.
  */
 export async function loadPlacements() {
-    const cloudUrl = galleryUrl();
-    if (cloudUrl) {
-        try {
-            const res = await fetch(cloudUrl, { cache: 'no-cache', signal: AbortSignal.timeout(6000) });
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.artworks)) {
-                    const preferMedium = QUALITY.tier === 'low';
-                    const paintings = data.artworks
-                        .map((a) => toPlacementRecord(a, { preferMedium }))
-                        .filter(Boolean);
-                    // Landmark name/description overrides -- see
-                    // src/studio/gardenSection.js. Not every garden fixture
-                    // needs to have been touched, so this is whatever subset
-                    // an artist actually edited and published, not all five.
-                    return { version: data.schemaVersion || 1, paintings, landmarks: data.landmarks || [] };
-                }
-            }
-        } catch {
-            // Falls through to the bundled file below.
+    try {
+        const data = await readGallery();
+        if (Array.isArray(data.artworks)) {
+            const preferMedium = QUALITY.tier === 'low';
+            const paintings = data.artworks.map(a => toPlacementRecord(a, { preferMedium })).filter(Boolean);
+            return { version: data.schemaVersion || 1, paintings, landmarks: data.landmarks || [] };
         }
-    }
+    } catch { /* Use the bundled arrangement when public storage is unavailable. */ }
     try {
         const res = await fetch(getAssetUrl('paintings.json'), { cache: 'no-cache' });
         if (!res.ok) return { version: 1, paintings: [], landmarks: [] };

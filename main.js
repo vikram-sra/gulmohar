@@ -1,3 +1,4 @@
+import { restoreGardenView } from './src/scene/gardenView.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -127,7 +128,7 @@ const WORLD_UP = new THREE.Vector3(0, 1, 0);
 const _hoverWorld = new THREE.Vector3();
 const _markerWorld = new THREE.Vector3();
 const _occludeTo = new THREE.Vector3();
-const _dofRest = new THREE.Vector3();
+const _dofSubject = new THREE.Vector3();
 // Roughly the middle of the gulmohar's canopy -- the depth the opening view
 // should resolve on, not the ground beneath it.
 const GULMOHAR_FOCUS_Y = 5.0;
@@ -377,8 +378,8 @@ class GulmoharApp {
         // cheaper and far more controllable than a full-screen pass.
         this.composer = new EffectComposer(this.renderer);
         this.composer.addPass(new RenderPass(this.scene, this.camera));
-        // A very subtle pointer-driven rack focus: whatever the pointer is
-        // over stays sharp, distant lawn and canopy soften a little. Off
+        // Subject-aware focus tracks the camera target in orbit and samples
+        // the view ahead while walking. Off
         // entirely on the low tier (QUALITY.dofTaps === 0). Depth comes free
         // off RenderPass's own depth test -- see src/post/dofPass.js for why
         // this is one extra full-screen pass rather than a second scene
@@ -490,7 +491,6 @@ class GulmoharApp {
         this._hoverPlateEl = this._hoverLabelEl && this._hoverLabelEl.querySelector('.hl-plate');
         if (!this.placeArtworkId) {
             this.createDock();
-            this._startClock();
         }
 
         // Open at midday, still. This used to seed from the visitor's own
@@ -524,7 +524,7 @@ class GulmoharApp {
         // it. Escape is the keyboard route; the dock's Home button is the
         // pointer one.
         window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
+            if (e.key === 'Escape' && !this.placeArtworkId) {
                 if (this.navMode === 'walk') {
                     this.setNavMode('orbit');
                 } else {
@@ -1094,8 +1094,8 @@ class GulmoharApp {
             // an error state. Mounted onto named anchors within garden.group
             // (see resolveAnchor in paintings.js), so they move correctly if
             // a landmark is ever repositioned.
-            loadPlacements().then((data) => {
-                this.paintings = mountAllPaintings(garden.group, data.paintings, (object, hoverData) => {
+            loadPlacements().then(async (data) => {
+                this.paintings = mountAllPaintings(garden.group, data.paintings.filter(p => p.id !== this.placeArtworkId), (object, hoverData) => {
                     this._registerHover(object, hoverData);
                 });
 
@@ -1132,14 +1132,16 @@ class GulmoharApp {
                 // theirs are among the largest left.
                 this._capSceneTextures();
                 this._buildNavMarkers();
+                if (!this.placeArtworkId) {
+                    const { attachPaintingBrowser } = await import('./src/scene/paintingBrowser.js');
+                    attachPaintingBrowser(this);
+                }
                 this._contentReady = true;
                 this.renderer.shadowMap.needsUpdate = true;
                 this._maybeStartIntro();
 
                 if (this.placeArtworkId) {
-                    import('./src/place/placeMode.js')
-                        .then(({ attachPlaceMode }) => attachPlaceMode(this, this.placeArtworkId))
-                        .then((mode) => { this.placeMode = mode; });
+                    this.switchPlaceArtwork(this.placeArtworkId);
                 }
             });
         });
@@ -1272,6 +1274,7 @@ class GulmoharApp {
     }
 
     onClick(e) {
+        if (this.placeArtworkId) return;
         // Editor gizmo drags satisfy the same "short, quick pointer" test a
         // real tap does -- without this, finishing a drag also fires a
         // scene click, which (finding no landmark under the gizmo) calls
@@ -1355,6 +1358,9 @@ class GulmoharApp {
     focusTarget(targetData) {
         if (!targetData || !targetData.cameraTarget) return;
         if (targetData.kind === 'painting') {
+            if (this._paintingSelect) this._paintingSelect.value = targetData.id;
+            if (this._paintingViewButton) this._paintingViewButton.disabled = false;
+            this._onPaintingFocused?.(targetData.id);
             if (this.navMode === 'walk') this.setNavMode('orbit');
             const { pos, lookAt, worldHeight } = targetData.cameraTarget;
             this.controls.minDistance = this._paintingDollyLimit(worldHeight, pos.distanceTo(lookAt));
@@ -1737,9 +1743,10 @@ class GulmoharApp {
         // foot, near the gulmohar, facing out into the open lawn.
         if (this.placeArtworkId) {
             this.camera.position.set(10.5, 1.7, 9.0);
-            this.camera.lookAt(0, 1.7, 0);
+            this.camera.lookAt(7, 0, 6);
             this.controls.autoRotate = false;
             this.setNavMode('walk');
+            this.placeMode?.reframe();
             return;
         }
 
@@ -1749,6 +1756,10 @@ class GulmoharApp {
         // one can be flagged this meaningfully (see schema.js), but a flag
         // left over from a since-unplaced painting is still handled here,
         // not assumed away: it just falls through to the default intro below.
+        const requested = new URLSearchParams(location.search).get('painting');
+        const linkedPainting = requested && this.paintings?.get(requested);
+        if (linkedPainting) { this.focusTarget(linkedPainting.interactive.data); return; }
+        if (restoreGardenView(this)) return;
         const startHere = this._findStartHerePainting();
         if (startHere) { this._startIntroOnPainting(startHere); return; }
 
@@ -1819,7 +1830,7 @@ class GulmoharApp {
             // Must follow setPixelRatio: EffectComposer.setSize re-reads the
             // renderer's pixel ratio, and without this its render targets stay
             // at the old resolution and the change does nothing.
-            this.composer.setSize(window.innerWidth, window.innerHeight);
+            this.onResize();
         }
 
         // `count` is a draw range, not an allocation -- lowering it costs
@@ -1842,6 +1853,7 @@ class GulmoharApp {
     }
 
     resetScene() {
+        this._onPaintingFocused?.(null);
         if (this.navMode === 'walk') {
             this.setNavMode('orbit');
         }
@@ -1914,13 +1926,31 @@ class GulmoharApp {
         gsap.to(this.camera.position, { x: newPos.x, y: newPos.y, z: newPos.z, duration: animDuration(1.5), ease: 'sine.inOut' });
     }
 
+    async switchPlaceArtwork(id) {
+        if (this._openingPlacement) return;
+        this._openingPlacement = true;
+        try {
+            const { attachPlaceMode } = await import('./src/place/placeMode.js');
+            this.placeMode?.dispose();
+            this.placeArtworkId = id;
+            this.placeMode = await attachPlaceMode(this, id);
+            const url = new URL(location.href);
+            url.searchParams.set('place', id);
+            history.replaceState(null, '', url);
+        } catch (error) {
+            console.error('Could not open placement editor', error);
+        } finally { this._openingPlacement = false; }
+    }
+
     onResize() {
-        const aspect = window.innerWidth / window.innerHeight;
+        const width = this._renderViewport?.clientWidth || window.innerWidth;
+        const height = this._renderViewport?.clientHeight || window.innerHeight;
+        const aspect = width / height;
         this.camera.aspect = aspect;
         this.camera.fov = this._fovForAspect(aspect);
         this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-        this.composer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(width, height);
+        this.composer.setSize(width, height);
     }
 
     // -- motion & UI --------------------------------------------------------
@@ -2011,8 +2041,6 @@ class GulmoharApp {
         // exactly one of the pair is ever showing.
         if (this.uiBar) this.uiBar.classList.toggle('bar-collapsed', !visible);
         if (this.homeOrb) this.homeOrb.classList.toggle('orb-hidden', visible);
-        const clock = document.getElementById('clock');
-        if (clock) clock.classList.toggle('ui-hidden', !visible);
     }
 
     createDock() {
@@ -2322,21 +2350,6 @@ class GulmoharApp {
         this.resetUIHideTimer();
     }
 
-    // The clock reads the same sun angle that lights the scene, so it cannot
-    // drift out of step with what is on screen.
-    _startClock() {
-        const el = document.getElementById('clock');
-        if (!el) return;
-        const tick = () => {
-            const hours = ((this.sunAngle / (Math.PI * 2)) * 24 + 6 + 24) % 24;
-            const h = Math.floor(hours);
-            const m = Math.floor((hours - h) * 60);
-            el.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-        };
-        tick();
-        setInterval(tick, 1000);
-    }
-
     // -- frame --------------------------------------------------------------
 
     animate() {
@@ -2613,54 +2626,24 @@ class GulmoharApp {
             this._paintingsTurned = true;
         }
         if (this.dofPass) {
-            // While a painting is being looked at, focus is pinned to the
-            // painting itself rather than to the cursor. Orbiting is done by
-            // dragging, and a drag is mostly spent with the cursor out over
-            // empty grass or sky -- which is exactly what "focus follows the
-            // pointer" would then focus on, throwing the very thing you are
-            // studying out of focus every time you turned around it.
-            let uv = null;
-            if (this._paintingFocus && this.paintings) {
-                const m = this.paintings.get(this._paintingFocus.id);
-                if (m) {
-                    const v = m.group.position.clone().project(this.camera);
-                    if (v.z < 1) uv = [v.x * 0.5 + 0.5, v.y * 0.5 + 0.5];
+            // Editing needs an unblurred preview. Browsing follows the world
+            // subject, never the cursor position left behind by a drag.
+            this.dofPass.enabled = !this.placeArtworkId;
+            this.dofPass.focusPoint = this.navMode === 'walk' ? null : this.controls.target;
+            if (this._paintingFocus && this.navMode !== 'walk') {
+                const painting = this.paintings?.get(this._paintingFocus.id);
+                if (painting) {
+                    painting.group.getWorldPosition(_dofSubject);
+                    this.dofPass.focusPoint = _dofSubject;
                 }
             }
-            // Otherwise the cursor. this.pointer is NDC (-1..1) and starts at
-            // the (-2,-2) sentinel before any pointer event has arrived; touch
-            // only ever updates it on contact (see onPointerMove's own
-            // comment), so between touches it holds the last tap rather than
-            // tracking a hover that does not exist. Either way, off-screen
-            // reads as "no pointer" here and falls back to the screen centre.
-            if (!uv) {
-                const px = this.pointer.x, py = this.pointer.y;
-                if (px >= -1 && px <= 1 && py >= -1 && py <= 1) {
-                    uv = [px * 0.5 + 0.5, py * 0.5 + 0.5];
-                } else {
-                    // No pointer -- before the first mouse move, and on touch
-                    // between taps. Falling back to the screen centre focused
-                    // on whatever geometry happened to sit at the crosshair,
-                    // which in the opening view is the lawn under the canopy,
-                    // leaving the tree the whole shot is built around soft.
-                    // Focus the centrepiece instead: it is the subject until
-                    // the visitor says otherwise, and the moment they move the
-                    // pointer the branch above takes over again.
-                    _dofRest.set(GARDEN_POINTS.GULMOHAR.x, GULMOHAR_FOCUS_Y, GARDEN_POINTS.GULMOHAR.z)
-                        .project(this.camera);
-                    uv = (_dofRest.z < 1 && Math.abs(_dofRest.x) <= 1 && Math.abs(_dofRest.y) <= 1)
-                        ? [_dofRest.x * 0.5 + 0.5, _dofRest.y * 0.5 + 0.5]
-                        : [0.5, 0.5];
-                }
-            }
-            this.dofPass.pointerUV.set(uv[0], uv[1]);
         }
         // One path for every device. Mobile used to bypass the composer, which
         // meant it applied tone mapping and the sRGB encode differently from
         // desktop -- so every colour tuned on a desktop was a colour phones
         // never showed. With bloom gone the composer is a render plus one
         // full-screen blit, which is affordable everywhere.
-        this.composer.render();
+        this.composer.render(dt);
     }
 }
 

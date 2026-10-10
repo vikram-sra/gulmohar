@@ -1,213 +1,85 @@
-/* Placement-mode HUD. Loaded only with the placement chunk (?place=<id>), so
-   visitors never download it. Deliberately quieter than the visitor dock: the
-   garden is the thing being judged here, the controls are scaffolding. */
-
-.place-hud {
-    position: fixed;
-    inset: 0;
-    z-index: 1400;
-    pointer-events: none;            /* only the controls take input */
-    font: 13px/1.35 'Inter', system-ui, -apple-system, sans-serif;
-    color: #253226;
-    -webkit-user-select: none;
-    user-select: none;
-}
-
-.place-hud button,
-.place-hud .place-options { pointer-events: auto; }
-
-/* -- reticle ------------------------------------------------------------- */
-/* Touch has no cursor, so the aim point has to be drawn. It is the same on
-   desktop, so what you see is what places on both. */
-.place-reticle {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    width: 16px;
-    height: 16px;
-    margin: -8px 0 0 -8px;
-    border-radius: 50%;
-    border: 1.5px solid rgba(255, 255, 255, 0.85);
-    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(0, 0, 0, 0.18);
-}
-.place-reticle::after {
-    content: '';
-    position: absolute;
-    left: 50%; top: 50%;
-    width: 2px; height: 2px;
-    margin: -1px 0 0 -1px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.95);
-}
-
-/* -- header -------------------------------------------------------------- */
-.place-head {
-    position: absolute;
-    top: 14px;
-    left: 50%;
-    transform: translateX(-50%);
-    max-width: min(92vw, 460px);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    padding: 7px 16px;
-    border-radius: 14px;
-    text-align: center;
-    background: rgba(255, 255, 255, 0.62);
-    backdrop-filter: blur(20px) saturate(170%);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    border: 0.5px solid rgba(255, 255, 255, 0.55);
-    box-shadow: 0 6px 22px rgba(30, 40, 30, 0.14);
-}
-.place-title { font-weight: 600; letter-spacing: 0.01em; }
-.place-step { font-size: 11.5px; color: #5C6C58; }
-
-/* -- mount options ------------------------------------------------------- */
-.place-options {
-    position: absolute;
-    left: 50%;
-    bottom: 74px;
-    transform: translateX(-50%);
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
-    width: min(92vw, 460px);
-}
-.place-options[hidden] { display: none; }
-
-.place-option {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 9px 12px;
-    min-height: 52px;
-    text-align: left;
-    border-radius: 13px;
-    cursor: pointer;
-    font: inherit;
-    color: inherit;
-    background: rgba(255, 255, 255, 0.66);
-    backdrop-filter: blur(20px) saturate(170%);
-    -webkit-backdrop-filter: blur(20px) saturate(170%);
-    border: 0.5px solid rgba(255, 255, 255, 0.6);
-    box-shadow: 0 6px 20px rgba(30, 40, 30, 0.13);
-    transition: background 0.16s ease, opacity 0.16s ease, border-color 0.16s ease;
-}
-.place-option strong { font-size: 13px; font-weight: 600; }
-.place-option small { font-size: 11px; color: #5C6C58; }
-.place-option:hover:not(:disabled) { background: rgba(255, 255, 255, 0.82); }
-.place-option.active {
-    border-color: rgba(217, 80, 47, 0.65);
-    background: rgba(255, 255, 255, 0.88);
-}
-/* Dimmed rather than hidden, with the reason in place of the hint: a control
-   that vanishes as you turn around reads as a bug, not as a rule. */
-/* Faded, not transparent. Dropping the glass opacity instead lets the dark
-   grass through and the label stops being readable at all -- which turns
-   "this mount isn't available here" into "this card is broken". */
-.place-option:disabled {
-    cursor: default;
-    box-shadow: none;
-    color: #8A947F;
-}
-.place-option:disabled small { color: #97A08C; }
-
-/* -- control bar --------------------------------------------------------- */
-.place-bar {
-    position: absolute;
-    left: 50%;
-    bottom: 18px;
-    transform: translateX(-50%);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 8px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.62);
-    backdrop-filter: blur(24px) saturate(175%);
-    -webkit-backdrop-filter: blur(24px) saturate(175%);
-    border: 0.5px solid rgba(255, 255, 255, 0.55);
-    box-shadow: 0 8px 26px rgba(30, 40, 30, 0.16);
-}
-
-.place-btn {
-    font: inherit;
-    font-size: 12.5px;
-    font-weight: 550;
-    color: #253226;
-    padding: 0 13px;
-    height: 32px;
-    border-radius: 999px;
-    cursor: pointer;
-    white-space: nowrap;
-    background: rgba(255, 255, 255, 0.5);
-    border: 0.5px solid rgba(255, 255, 255, 0.6);
-    /* none, not manipulation: manipulation still lets the browser treat a
-       touch starting on a button as the beginning of a scroll. */
-    touch-action: none;
-    transition: background 0.15s ease, opacity 0.15s ease;
-}
-.place-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.75); }
-.place-btn:disabled { opacity: 0.45; cursor: default; }
-.place-btn[hidden] { display: none; }
-.place-btn.primary {
-    background: rgba(217, 80, 47, 0.92);
-    color: #fff;
-    border-color: rgba(217, 80, 47, 0.5);
-}
-.place-btn.primary:hover:not(:disabled) { background: rgba(217, 80, 47, 1); }
-.place-btn.danger {
-    background: rgba(196, 43, 28, 0.12);
-    color: #c93b2b;
-    border-color: rgba(196, 43, 28, 0.35);
-}
-.place-btn.danger:hover:not(:disabled) {
-    background: rgba(196, 43, 28, 0.22);
-}
-.place-btn.ghost { background: transparent; border-color: transparent; color: #5C6C58; }
-.place-btn.round { width: 32px; padding: 0; font-size: 15px; }
-
-.place-size {
-    font-size: 11.5px;
-    color: #5C6C58;
-    min-width: 34px;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
-}
-.place-size[hidden] { display: none; }
-
-/* -- toast --------------------------------------------------------------- */
-.place-toast {
-    position: absolute;
-    left: 50%;
-    bottom: 64px;
-    transform: translate(-50%, 6px);
-    max-width: min(92vw, 440px);
-    padding: 8px 15px;
-    border-radius: 12px;
-    background: rgba(37, 50, 38, 0.9);
-    color: #F6F1E3;
-    font-size: 12.5px;
-    text-align: center;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.25s ease, transform 0.25s ease;
-}
-.place-toast.show { opacity: 1; transform: translate(-50%, 0); }
-.place-toast.error { background: rgba(150, 44, 26, 0.94); }
-/* The failure banner is appended to <body>, not inside .place-hud. */
+/* A modal Studio with a live garden preview and a separate editing panel. */
+.place-modal { position: fixed; inset: 0; margin: auto; width: min(1440px, 96vw); height: min(940px, 94dvh); max-width: none; max-height: none; padding: 0; border: 1px solid #e2e4d5; border-radius: 22px; background: #f7f5ee; color: #253226; box-shadow: 0 30px 100px #101e1466; font: 13px/1.45 'Outfit', system-ui, sans-serif; overflow: hidden; }
+.place-modal[open] { display: grid; grid-template-rows: auto minmax(0,1fr) auto; animation: place-enter .18s ease-out; }
+.place-modal::backdrop { background: rgba(17,29,21,.62); backdrop-filter: blur(8px); }
+@keyframes place-enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media(prefers-reduced-motion: reduce) { .place-modal[open] { animation: none; } }
+.place-modal [hidden] { display: none !important; }
+.place-head { display: flex; align-items: center; gap: 20px; padding: 18px 24px; border-bottom: 1px solid #dfe2d5; }
+.place-heading-copy { flex: 1; min-width: 0; }
+.place-heading-copy small { display: block; font-size: 9px; letter-spacing: .17em; color: #697862; }
+.place-title { display: block; font: 400 23px/1.25 'Newsreader', Georgia, serif; margin: 4px 0; }
+.place-step { display: block; color: #65735e; font-size: 12px; }
+.place-painting-picker { max-width: 300px; padding: 11px 32px 11px 12px; background: #fffdf6; border: 1px solid #d8dece; border-radius: 10px; font: inherit; color: inherit; cursor: pointer; }
+.place-close { flex-shrink: 0; width: 38px; height: 38px; border: 1px solid #d8dece; border-radius: 50%; font: 24px/1 system-ui; background: #eeeee5; color: #5c6c58; cursor: pointer; }
+.place-modal-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; min-height: 0; }
+.place-preview { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: #c5d7cf; touch-action: none; }
+.place-preview > canvas { display: block; width: 100%; height: 100%; }
+.place-preview-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100% - 24px); padding: 7px 12px; border-radius: 20px; background: #f7f5eedb; color: #55664e; font-size: 11px; text-align: center; pointer-events: none; }
+.place-reticle { position: absolute; top: 50%; left: 50%; width: 16px; height: 16px; margin: -8px; border: 1.5px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #25322655; pointer-events: none; }
+.place-reticle::after { content: ''; position: absolute; top: 50%; left: 50%; width: 2px; height: 2px; margin: -1px; border-radius: 50%; background: white; }
+.place-sidebar { padding: 20px; overflow-y: auto; min-height: 0; border-left: 1px solid #dfe2d5; touch-action: pan-y; }
+.place-sidebar-intro { font-size: 12px; color: #65735e; margin: 0 0 22px; }
+.place-options { display: grid; grid-template-columns: 1fr; gap: 8px; }
+.place-option { display: flex; flex-direction: column; gap: 3px; padding: 12px 14px; width: 100%; border: 1px solid #d8dece; border-radius: 12px; background: #fffdf7; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.place-option strong { font-weight: 600; font-size: 13px; }
+.place-option small { font-size: 11px; color: #6c7966; }
+.place-option.active { border-color: #d9502f; background: #fff0e7; }
+.place-option:disabled { opacity: .5; cursor: default; }
+.place-btn { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 8px 13px; border: 1px solid #d8dece; border-radius: 9px; font: inherit; font-size: 12px; color: inherit; background: #fffdf7; cursor: pointer; touch-action: manipulation; }
+.place-btn:hover:not(:disabled), .place-option:hover:not(:disabled) { background: #eeeee3; }
+.place-btn:disabled, .place-close:disabled { opacity: .45; cursor: default; }
+.place-btn.primary { background: #cf512f; border-color: #cf512f; color: white; }
+.place-btn.primary:hover:not(:disabled) { background: #b94224; }
+.place-btn.danger { color: #a3412c; border-color: #edd6ce; background: #f7e9e3; }
+.place-btn.ghost { background: transparent; }
+.place-btn.round { width: 36px; min-height: 36px; padding: 0; font-size: 17px; }
+.place-suggestions, .place-fine { display: flex; flex-direction: column; gap: 10px; }
+.place-fine > small { font-size: 11px; color: #6c7966; }
+.place-sizing { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+.place-size { font-size: 11px; font-variant-numeric: tabular-nums; color: #65735e; }
+.place-nudges { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; }
+.place-warnings { margin-top: 14px; padding: 12px; border-radius: 10px; font-size: 12px; color: #795520; background: #fff0d2; }
+.place-warnings.blocking { background: #ffe5db; color: #923d29; }
+.place-switch-prompt { margin-top: 16px; padding: 12px; border: 1px solid #e3c6ac; background: #fff0df; border-radius: 10px; }
+.place-switch-prompt p { margin-bottom: 12px; }
+.place-switch-prompt .place-btn { width: 100%; margin-top: 6px; }
+.place-modal-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 22px; padding: 14px 20px; border-top: 1px solid #dfe2d5; }
+.place-footer-copy { flex: 1; min-width: 200px; color: #6c7966; font-size: 11px; max-width: 300px; }
+.place-bar { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; }
+.place-toast { position: absolute; bottom: 140px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px; background: #253226ed; color: #f7f5ee; font-size: 12px; text-align: center; opacity: 0; pointer-events: none; transition: opacity .2s; }
+.place-toast.show { opacity: 1; }
+.place-toast.error { background: #973e29; }
 .place-toast.standalone { position: fixed; bottom: 24px; z-index: 1500; }
-
-/* No dark-scheme block on purpose: nothing else on this site has one, and a
-   HUD that flips to dark while the dock beside it stays light glass reads as
-   two different applications. */
-
-@media (max-width: 640px) {
-    /* Clear of the joystick (bottom-left) and the sprint/jump pads (right). */
-    .place-bar { bottom: 116px; flex-wrap: wrap; justify-content: center; max-width: 94vw; }
-    .place-options { bottom: 172px; }
-    .place-toast { bottom: 166px; }
-    .place-btn { height: 34px; }
-    .place-btn.round { width: 34px; }
+.place-preview #fps-touch-controls { position: absolute; inset: 0; }
+.place-preview .fps-arrow-pad { bottom: 12px; left: 12px; transform: scale(.8); transform-origin: bottom left; }
+.place-preview .fps-jump-btn { bottom: 68px; right: 12px; }
+.place-preview .fps-sprint-btn { bottom: 12px; right: 12px; }
+.place-preview .fps-walk-hint { display: none; }
+.placing-painting #nav-markers { display: none; }
+@media(max-width: 760px) {
+    .place-modal { width: 96vw; height: 96dvh; border-radius: 16px; }
+    .place-head { padding: 12px 14px; gap: 8px 12px; flex-wrap: wrap; }
+    .place-heading-copy { flex-basis: calc(100% - 52px); }
+    .place-close { order: 1; }
+    .place-painting-picker { order: 2; width: 100%; max-width: none; padding: 8px 12px; }
+    .place-title { font-size: 20px; }
+    .place-step { font-size: 11px; }
+    .place-modal-body { grid-template-columns: 1fr; grid-template-rows: minmax(170px, 1.15fr) minmax(120px, 1fr); }
+    .place-sidebar { padding: 14px; border-left: 0; border-top: 1px solid #dfe2d5; }
+    .place-sidebar-intro { margin-bottom: 12px; }
+    .place-options { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .place-suggestions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .place-suggestions > strong { grid-column: 1 / -1; }
+    .place-fine { gap: 8px; }
+    .place-nudges { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .place-modal-footer { padding: 10px 12px; gap: 8px; }
+    .place-footer-copy { max-width: none; flex-basis: 100%; font-size: 10px; }
+    .place-bar { width: 100%; margin: 0; justify-content: flex-end; }
+    .place-bar .place-btn { font-size: 11px; padding: 6px 10px; min-height: 36px; }
+    .place-preview-hint { top: 8px; font-size: 10px; padding: 5px 10px; }
+    .place-preview .fps-arrow-pad { transform: scale(.65); }
+    .place-preview .fps-jump-btn, .place-preview .fps-sprint-btn { width: 36px; height: 36px; }
+    .place-preview .fps-jump-btn { bottom: 52px; }
+    .place-toast { bottom: 12px; }
 }

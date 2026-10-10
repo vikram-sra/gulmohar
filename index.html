@@ -104,7 +104,7 @@
       --btn-moon-bg: rgba(174, 207, 224, 0.15);
     }
 
-    .ui-overlay, .ui-overlay *, #clock, #hover-label *,
+    .ui-overlay, .ui-overlay *, #hover-label *,
     .glass-bar-wrapper, .glass-btn, .btn-tip {
       transition: color 0.9s ease, background 0.9s ease, border-color 0.9s ease,
                   box-shadow 0.9s ease, text-shadow 0.9s ease;
@@ -160,20 +160,6 @@
     }
     .ui-overlay nav a:hover, .ui-overlay nav a:focus-visible {
       color: var(--hud-ink-strong); border-bottom-color: var(--gulmohar);
-    }
-
-    #clock {
-      position: absolute;
-      top: calc(40px + env(safe-area-inset-top));
-      right: calc(40px + env(safe-area-inset-right));
-      z-index: 10;
-      color: var(--hud-ink);
-      font-size: 0.82rem;
-      letter-spacing: 0.24rem;
-      font-weight: 300;
-      font-variant-numeric: tabular-nums;
-      text-shadow: var(--hud-halo);
-      transition: opacity 0.6s ease, transform 0.6s ease, color 0.9s ease, text-shadow 0.9s ease;
     }
 
     /* --- navigation markers ----------------------------------------------
@@ -605,7 +591,6 @@
       }
       .glass-btn svg { width: 15px; height: 15px; stroke-width: 1.35; }
       .ui-overlay { top: calc(18px + env(safe-area-inset-top)); left: calc(18px + env(safe-area-inset-left)); }
-      #clock { top: calc(18px + env(safe-area-inset-top)); right: calc(18px + env(safe-area-inset-right)); font-size: 11px; }
       .fps-sprint-btn {
         bottom: calc(88px + env(safe-area-inset-bottom));
         right: calc(20px + env(safe-area-inset-right));
@@ -739,7 +724,6 @@
     </nav>
   </div>
 
-  <div id="clock">--:--</div>
 
   <div id="nav-markers"></div>
   <div id="hover-label"><span class="hl-plate"><span class="hl-title"></span><span class="hl-meta"></span></span></div>

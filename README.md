@@ -459,3 +459,36 @@ disappear.
 - **Console `await import('/src/x.js')` gets a second module instance** — a
   phantom with its own state. Read live singletons from `window.__gulmohar`,
   `window.__quality`, `window.__wind`, `window.__gulmoharEdit` instead.
+
+### Placement editor and local testing
+
+The Studio's “Move in garden” action opens a modal with a live garden preview.
+The painting selector and taps on other placed paintings switch the editor
+without reloading the scene. Unsaved changes offer save, discard, or keep
+editing. Cancel returns to the Studio and discards only the current unsaved
+placement. Saved drafts are visible while arranging, including unpublished
+paintings. Publish remains a separate Studio action.
+
+Suggested areas, 10 cm adjustments, drag mode, and Undo help position each
+frame. Pond, ground, trunk, and missing rope support checks prevent invalid
+saves; nearby frames and path obstructions show clearance advice.
+
+To exercise upload, placement, switching, and publishing without cloud writes:
+
+```bash
+VITE_STUDIO_BACKEND=local npm run dev -- --host 127.0.0.1 --port 5174
+```
+
+This explicitly selected development mode uses browser-local documents and
+images. The Work page and garden read the local published collection too.
+Production builds always use the configured cloud backend.
+
+```bash
+npm run build
+npm test
+npm run test:placement
+```
+
+The garden's “View painting” action opens the same full image viewer as Work.
+Returning from Work restores the selected painting and camera view for up to
+30 minutes in the same tab.

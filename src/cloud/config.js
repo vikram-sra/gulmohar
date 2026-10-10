@@ -31,3 +31,9 @@ export function publicObjectUrl(path) {
 export function galleryUrl() {
     return isCloudConfigured() ? publicObjectUrl(GALLERY_PATH) : null;
 }
+
+/** Explicit dev-only test mode; production builds always use the configured cloud. */
+export function useLocalStudio() {
+    return import.meta.env.DEV && import.meta.env.VITE_STUDIO_BACKEND === 'local'
+        && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+}

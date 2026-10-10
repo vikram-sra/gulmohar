@@ -135,6 +135,8 @@ export function openAddPaintingDialog({ onUpload }) {
 
     const progress = el('div', { class: 'progress', hidden: true }, el('i'));
     const status = el('span', { class: 'status-note', role: 'status', 'aria-live': 'polite' });
+    const placeAfter = el('input', { type: 'checkbox', checked: true });
+    const nextStep = el('label', { class: 'hint' }, placeAfter, ' Place in the garden after upload');
     const addBtn = el('button', { type: 'submit', class: 'btn accent', text: 'Add to studio', disabled: true });
     const cancelBtn = el('button', { type: 'button', class: 'btn', text: 'Cancel', onclick: () => { if (!busy) dlg.close(); } });
 
@@ -160,7 +162,7 @@ export function openAddPaintingDialog({ onUpload }) {
         el('div', { class: 'upload' }, drop, form.el),
         el('div', { class: 'bottom' },
             status,
-            el('div', { class: 'right-actions' }, cancelBtn, addBtn)),
+            el('div', { class: 'right-actions' }, nextStep, cancelBtn, addBtn)),
         progress);
 
     const dlg = el('dialog', { class: 'panel add-modal', 'aria-label': 'Add a painting' }, formEl);
@@ -228,13 +230,14 @@ export function openAddPaintingDialog({ onUpload }) {
         bar.style.width = '0%';
         status.textContent = 'Uploading…';
         try {
-            await onUpload(form.getValues(), processed, (f) => {
+            const artworkId = await onUpload(form.getValues(), processed, (f) => {
                 const pct = Math.round(f * 100);
                 bar.style.width = `${pct}%`;
                 status.textContent = `Uploading ${pct}%…`;
             });
             toast('Added. Place it in the garden whenever you’re ready.');
             dlg.close();
+            if (placeAfter.checked && artworkId) location.href = `../?place=${encodeURIComponent(artworkId)}`;
         } catch (err) {
             console.error(err);
             status.textContent = 'Upload failed.';
@@ -247,6 +250,9 @@ export function openAddPaintingDialog({ onUpload }) {
         }
     });
 
+    dlg.addEventListener('cancel', e => { if (busy) e.preventDefault(); });
+    dlg.isBusy = () => busy;
+    dlg.hasUnsaved = () => busy || !!processed;
     dlg.addEventListener('close', () => {
         if (previewUrl) URL.revokeObjectURL(previewUrl);
         dlg.remove();

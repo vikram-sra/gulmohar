@@ -1,117 +1,56 @@
-import { galleryUrl } from '../cloud/config.js';
-
-// ---------------------------------------------------------------------------
-// Dynamic catalogue loader for the Work page.
-// SDK-free: reads the published gallery.json (or local paintings.json fallback),
-// respecting artist ordering and work page visibility.
-// ---------------------------------------------------------------------------
+import { readGallery } from '../cloud/gallery.js';
+import './work.css';
+import { createArtworkViewer, artworkTitle as title, artworkAvailability as availability, artworkMetadata as metadata } from '../gallery/artworkViewer.js';
 
 function el(tag, attrs = {}, ...children) {
     const node = document.createElement(tag);
-    for (const [k, v] of Object.entries(attrs)) {
-        if (k === 'class') node.className = v;
-        else if (k.startsWith('data-')) node.setAttribute(k, v);
-        else node[k] = v;
+    for (const [key, value] of Object.entries(attrs)) {
+        if (key.startsWith('aria-')) node.setAttribute(key, value);
+        else node[key] = value;
     }
-    for (const c of children.flat()) {
-        if (!c) continue;
-        node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
-    }
+    node.append(...children.filter(Boolean));
     return node;
 }
-
-function renderCard(item) {
-    const title = item.title || 'Untitled';
-    const year = item.year ? `${item.year}` : '';
-    const medium = item.medium || '';
-    const w = item.widthIn || (item.dimensions && item.dimensions.width);
-    const h = item.heightIn || (item.dimensions && item.dimensions.height);
-    const dim = (w && h) ? `${w} × ${h} in` : '';
-
-    const metaParts = [year, medium, dim].filter(Boolean).join(' · ');
-    const avail = item.availability || 'available';
-    const availLabel = { available: 'Available', reserved: 'Reserved', sold: 'Private collection' }[avail] || avail;
-
-    // Image URL resolution
-    let src = '';
-    if (item.images) {
-        src = item.images.display || item.images.medium || item.images.thumb || '';
-    } else if (item.file) {
-        src = item.file.startsWith('/') || item.file.startsWith('http') ? item.file : `../${item.file}`;
-    }
-
-    const enquireHref = `mailto:gallery@gulmohar.art?subject=${encodeURIComponent(`Enquiry: ${title}`)}`;
-
-    const figure = el('figure', {},
-        el('div', { class: 'plate' },
-            src ? el('img', {
-                src,
-                alt: `${title} — ${medium || 'painting'}`,
-                loading: 'lazy',
-                decoding: 'async',
-                onerror(e) { e.target.style.opacity = '0.3'; }
-            }) : null
-        ),
-        el('figcaption', {},
-            el('div', { class: 't' }, title),
-            metaParts ? el('div', { class: 'm' }, metaParts) : null,
-            el('div', { class: 'card-footer', style: 'display:flex; justify-content:space-between; align-items:center; margin-top:8px;' },
-                el('span', { class: 's' }, availLabel),
-                avail === 'available' ? el('a', {
-                    href: enquireHref,
-                    style: 'font-size:0.75rem; letter-spacing:0.08rem; text-transform:uppercase; text-decoration:none; color:var(--muted); border-bottom:1px solid var(--rule);'
-                }, 'Enquire →') : null
-            )
-        )
-    );
-
-    return el('li', {}, figure);
-}
+const image = item => item.images?.display || item.images?.medium || item.images?.thumb || (item.file ? `../${item.file}` : '');
+const inGarden = item => (item.placement && item.placement.placed !== false && Array.isArray(item.placement.position)) || (!item.placement && Array.isArray(item.position));
 
 async function loadCatalogue() {
-    const listEl = document.querySelector('.works');
-    const ledeEl = document.querySelector('.lede');
-    if (!listEl) return;
-
-    let items = null;
-    const cloud = galleryUrl();
-
-    if (cloud) {
+    const list = document.querySelector('.works');
+    let items;
+    try {
+        const data = await readGallery();
+        if (!Array.isArray(data.artworks)) throw new Error('Invalid gallery');
+        items = data.artworks.filter(a => a.showOnWorkPage !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    } catch {
         try {
-            const res = await fetch(cloud, { cache: 'no-cache', signal: AbortSignal.timeout(6000) });
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.artworks) && data.artworks.length) {
-                    items = data.artworks
-                        .filter((a) => a.showOnWorkPage !== false)
-                        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-                }
-            }
-        } catch {
-            // Fall through to local fallback
-        }
+            const response = await fetch('../paintings.json', { signal: AbortSignal.timeout(6000) });
+            if (!response.ok) throw new Error('Catalogue unavailable');
+            items = (await response.json()).paintings;
+        } catch { return; }
     }
-
-    if (!items) {
-        try {
-            const res = await fetch('../paintings.json', { cache: 'no-cache' });
-            if (res.ok) {
-                const data = await res.json();
-                if (Array.isArray(data.paintings)) {
-                    items = data.paintings;
-                }
-            }
-        } catch {
-            return; // keep static markup
-        }
+    if (!Array.isArray(items)) return;
+    document.querySelector('.lede').textContent = 'Explore the collection. Open a painting for a closer look, or visit it in the garden.';
+    const search = el('input', { type: 'search', placeholder: 'Search paintings', 'aria-label': 'Search by title, medium or year' });
+    const filter = el('select', { 'aria-label': 'Filter by availability' }, ...[['', 'All works'], ['available', 'Available'], ['reserved', 'Reserved'], ['sold', 'Private collection'], ['nfs', 'Not for sale']].map(([value, textContent]) => el('option', { value, textContent })));
+    const count = el('p', { className: 'work-count', role: 'status' });
+    list.before(el('div', { className: 'work-tools' }, search, filter), count);
+    let visible = [];
+    const viewer = createArtworkViewer({ imageUrl: image,
+        gardenHref: item => inGarden(item) ? `../?painting=${encodeURIComponent(item.id)}` : null });
+    for (const link of document.querySelectorAll('a[href="../"]')) link.href = '../?restore=1';
+    function show(index) { viewer.setItems(visible); viewer.show(index); }
+    function render() {
+        const query = search.value.trim().toLowerCase();
+        visible = items.filter(item => (!filter.value || (item.availability || 'available') === filter.value) && [title(item), item.medium, item.year].join(' ').toLowerCase().includes(query));
+        count.textContent = `${visible.length} of ${items.length} works`;
+        list.replaceChildren(...visible.map((item, index) => el('li', {},
+            el('figure', {}, el('button', { type: 'button', className: 'plate', 'aria-label': `View ${title(item)}`, onclick: () => show(index) },
+                el('img', { src: image(item), alt: title(item), loading: 'lazy', decoding: 'async' })),
+            el('figcaption', {}, el('div', { className: 't', textContent: title(item) }), el('div', { className: 'm', textContent: metadata(item) }), el('span', { className: 's', textContent: availability(item) }))))));
+        if (!visible.length) list.append(el('li', { className: 'empty', textContent: items.length ? 'No paintings match. Try another search or choose All works.' : 'New paintings will appear here when the collection is published.' }));
     }
-
-    if (!items || !items.length) return;
-
-    listEl.replaceChildren(...items.map(renderCard));
-    if (ledeEl) {
-        ledeEl.textContent = `${items.length} work${items.length === 1 ? '' : 's'} on exhibition. Placed in the garden and listed here.`;
-    }
+    search.addEventListener('input', render);
+    filter.addEventListener('change', render);
+    render();
 }
-
 loadCatalogue();

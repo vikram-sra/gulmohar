@@ -1,0 +1,64 @@
+.painting-browser {
+    position: fixed;
+    top: calc(32px + env(safe-area-inset-top));
+    right: calc(32px + env(safe-area-inset-right));
+    z-index: 100;
+    color: var(--hud-ink-strong);
+    font: 13px system-ui, sans-serif;
+}
+.painting-browser-trigger, .painting-browser-panel {
+    color: inherit;
+    background: linear-gradient(180deg, var(--hud-glass-a), var(--hud-glass-b));
+    border: 1px solid var(--hud-border);
+    box-shadow: var(--hud-shadow);
+    backdrop-filter: blur(28px) saturate(140%);
+    -webkit-backdrop-filter: blur(28px) saturate(140%);
+}
+.painting-browser-trigger {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 42px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    font: inherit;
+    cursor: pointer;
+    transition: background .2s, transform .2s;
+}
+.painting-browser-trigger:hover { background: var(--hud-glass-a); transform: translateY(-1px); }
+.painting-browser-trigger svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.painting-browser-count { display: grid; place-items: center; min-width: 22px; height: 22px; border-radius: 50%; background: var(--hud-btn-bg); font-size: 11px; }
+.painting-browser-panel {
+    position: fixed;
+    inset: calc(84px + env(safe-area-inset-top)) calc(32px + env(safe-area-inset-right)) auto auto;
+    width: min(330px, calc(100vw - 32px));
+    margin: 0;
+    padding: 18px;
+    border-radius: 20px;
+    font: 13px system-ui, sans-serif;
+}
+.painting-browser-heading { margin: 0 0 14px; color: var(--hud-ink); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; }
+.painting-browser-controls { display: flex; align-items: center; gap: 6px; }
+.painting-browser-controls button, .painting-browser select, .painting-view-button {
+    min-height: 40px;
+    border: 1px solid var(--hud-btn-border);
+    border-radius: 10px;
+    background: var(--hud-btn-bg);
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+.painting-browser-controls button { flex: 0 0 36px; font-size: 20px; }
+.painting-browser select { width: 100%; min-width: 0; padding: 0 8px; text-overflow: ellipsis; }
+.painting-browser select option { background: var(--paper); color: var(--ink); }
+.painting-browser-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; }
+.painting-view-button { padding: 0 12px; }
+.painting-browser a { color: inherit; font-size: 12px; text-underline-offset: 4px; }
+.painting-browser button:disabled { opacity: .4; cursor: default; }
+.painting-browser :is(button, select, a):focus-visible { outline: 2px solid var(--gulmohar); outline-offset: 3px; }
+@media (max-width: 520px) {
+    .painting-browser { top: calc(18px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
+    .painting-browser-trigger { gap: 6px; padding: 7px 10px; min-height: 38px; font-size: 12px; }
+    .painting-browser-panel { top: calc(66px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
+}
+@media (prefers-reduced-motion: reduce) { .painting-browser-trigger { transition: none; } }

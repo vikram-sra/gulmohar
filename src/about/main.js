@@ -1,4 +1,4 @@
-import { galleryUrl } from '../cloud/config.js';
+import { readGallery } from '../cloud/gallery.js';
 import { ABOUT_FIELDS } from '../cloud/schema.js';
 
 // ---------------------------------------------------------------------------
@@ -31,13 +31,9 @@ function fill(key, text) {
 }
 
 async function load() {
-    const url = galleryUrl();
-    if (!url) return;                       // not connected: keep the static page
     let about = null;
     try {
-        const res = await fetch(url, { cache: 'no-cache' });
-        if (!res.ok) return;
-        about = (await res.json()).about;
+        about = (await readGallery()).about;
     } catch {
         return;                             // offline: keep the static page
     }

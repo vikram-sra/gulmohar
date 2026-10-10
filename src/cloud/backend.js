@@ -1,4 +1,4 @@
-import { isCloudConfigured } from './config.js';
+import { isCloudConfigured, useLocalStudio } from './config.js';
 
 export function localBackendAllowed() {
     return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
@@ -6,6 +6,10 @@ export function localBackendAllowed() {
 
 /** Firebase when configured; the local stand-in on localhost; otherwise null. */
 export async function getBackend() {
+    if (useLocalStudio()) {
+        const { createLocalBackend } = await import('./localBackend.js');
+        return createLocalBackend();
+    }
     if (isCloudConfigured()) {
         const { createFirebaseBackend } = await import('./firebaseBackend.js');
         return createFirebaseBackend();

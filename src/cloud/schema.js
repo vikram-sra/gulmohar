@@ -98,6 +98,8 @@ export function toPlacementRecord(pub, { preferMedium = false } = {}) {
         title: pub.title,
         year: pub.year,
         medium: pub.medium,
+        description: pub.description,
+        availability: pub.availability,
         frame: pub.frame,
         anchor: pub.placement.anchor,
         mount: pub.placement.mount,

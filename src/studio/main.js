@@ -116,9 +116,13 @@ function buildApp() {
 
     root.replaceChildren(...nodes);
 
-    const triggerAddModal = () => openAddPaintingDialog({
-        onUpload: (values, processed, prog) => uploadNewArtwork(backend, values, processed, nextOrder(artworks), prog)
-    });
+    let uploadDialog = null;
+    const triggerAddModal = () => {
+        if (uploadDialog?.isConnected) return;
+        uploadDialog = openAddPaintingDialog({
+            onUpload: (values, processed, prog) => uploadNewArtwork(backend, values, processed, nextOrder(artworks), prog)
+        });
+    };
     addBtn.addEventListener('click', triggerAddModal);
     sectionAddBtn.addEventListener('click', triggerAddModal);
 
@@ -218,8 +222,8 @@ function buildApp() {
     publishBtn.addEventListener('click', async () => {
         if (isPublishing) return;
         const ok = await confirmDialog({
-            title: 'Publish to the live site?',
-            body: `${publishBtn.dataset.summary}. Visitors see the new arrangement straight away.`,
+            title: backend.kind === 'local' ? 'Update the local preview?' : 'Publish to the live site?',
+            body: backend.kind === 'local' ? `${publishBtn.dataset.summary}. This updates only this browser’s preview.` : `${publishBtn.dataset.summary}. Visitors see the new arrangement straight away.`,
             confirm: 'Publish'
         });
         if (!ok || isPublishing) return;
@@ -227,7 +231,7 @@ function buildApp() {
         publishBtn.disabled = true;
         try {
             const r = await publish(backend, artworks, landmarks, published, (step) => { publishBtn.textContent = `${step}…`; });
-            toast(`Live — ${r.count} painting${r.count === 1 ? '' : 's'} published.`);
+            toast(`${backend.kind === 'local' ? 'Local preview updated' : 'Live'} — ${r.count} painting${r.count === 1 ? '' : 's'} published.`);
         } catch (err) {
             console.error(err);
             toast(`Publish failed: ${err.message || err}. It’s safe to try again.`, { error: true, ms: 7000 });
@@ -255,7 +259,7 @@ function buildApp() {
     });
 
     window.addEventListener('beforeunload', (e) => {
-        if (upload.hasUnsaved() || syncState === 'saving' || isPublishing) { e.preventDefault(); e.returnValue = ''; }
+        if ((uploadDialog?.isConnected && uploadDialog.hasUnsaved()) || syncState === 'saving' || isPublishing) { e.preventDefault(); e.returnValue = ''; }
     });
 }
 

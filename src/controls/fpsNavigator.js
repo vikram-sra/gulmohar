@@ -92,7 +92,7 @@ export class FPSNavigator {
 
     _setupKeyboard() {
         window.addEventListener('keydown', (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+            if (/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
 
             let consumed = true;
             switch (e.code) {

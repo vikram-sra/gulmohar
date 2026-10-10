@@ -1,0 +1,6 @@
+.work-tools { display: flex; flex-wrap: wrap; gap: 12px; }
+.work-tools input { flex: 1; min-width: 180px; }
+.work-tools input, .work-tools select { padding: 12px 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; }
+.work-count { color: var(--muted); margin: 18px 0 28px; }
+.works .plate { width: 100%; cursor: zoom-in; min-height: 280px; }
+.works .plate img { height: 300px; object-fit: contain; }

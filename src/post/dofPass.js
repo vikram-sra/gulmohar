@@ -1,31 +1,10 @@
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 
-// ---------------------------------------------------------------------------
-// Depth of field: a gentle rack focus that follows the pointer (or the
-// screen centre on touch), so whatever is under the cursor stays crisp and
-// everything else -- distant lawn, the far canopy, a painting you are not
-// looking at -- softens a little. Meant to be almost subliminal: a few
-// pixels of blur, not a bokeh showreel.
-//
-// Two things make this cheap enough to run every frame instead of the
-// disqualified BokehPass approach (a second full scene render with an
-// override depth material -- doubling the ~900k-triangle main pass, and
-// wrong besides, since the override material would skip the vertex-shader
-// wind displacement the visible pass uses):
-//
-//   1. Depth comes free. RenderPass already writes it as a side effect of
-//      the normal depth test; this only attaches a DepthTexture to the
-//      composer's own ping-pong targets and reads it back.
-//   2. Focus distance never touches the CPU. `gl.readPixels` on even a
-//      single pixel is a pipeline stall -- the driver has to wait for the
-//      GPU to finish before handing data back to JS, which is exactly the
-//      kind of per-frame hitch this project measures against. Instead a
-//      tiny 1x1 render target samples the depth texture at the pointer and
-//      is eased frame to frame entirely on the GPU (blended against its own
-//      previous frame, ping-ponged) -- so "what am I looking at" is a
-//      texture lookup for the blur pass, never a round trip to JS.
-// ---------------------------------------------------------------------------
+// Orbit focus follows a world-space subject, so camera movement cannot rack
+// focus onto grass under a dragging cursor. Walking uses a small central
+// depth probe, ignores sky and eases entirely on the GPU: no readback stalls.
+// The existing render depth is reused; there is no second scene render.
 
 const PACKING = THREE.ShaderChunk.packing; // perspectiveDepthToViewZ
 
@@ -40,21 +19,43 @@ const PROBE_FRAG = /* glsl */`
 ${PACKING}
 uniform sampler2D tDepth;
 uniform sampler2D tPrevFocus;
-uniform vec2 uPointerUV;
+uniform vec2 uProbeStep;
+uniform float uFocusDistance;
+uniform bool uInitialized;
 uniform float uCameraNear;
 uniform float uCameraFar;
 uniform float uEase;
 varying vec2 vUv;
 
 void main() {
-    float depth = texture2D(tDepth, uPointerUV).x;
-    float viewZ = perspectiveDepthToViewZ(depth, uCameraNear, uCameraFar);
-    float raw = clamp(-viewZ, uCameraNear, uCameraFar);
-    float prev = texture2D(tPrevFocus, vec2(0.5)).r;
-    // Blended here rather than in JS: a value this tiny (one texel) round
-    // -tripping through readPixels would be the exact stall this whole
-    // scheme exists to avoid.
-    float eased = mix(prev, raw, uEase);
+    float prev = uInitialized ? texture2D(tPrevFocus, vec2(0.5)).r : 20.0;
+    float raw = uFocusDistance;
+    if (raw <= 0.0) {
+        float samples[5];
+        samples[0] = texture2D(tDepth, vec2(0.5)).x;
+        samples[1] = texture2D(tDepth, vec2(0.5) + vec2(uProbeStep.x, 0.0)).x;
+        samples[2] = texture2D(tDepth, vec2(0.5) - vec2(uProbeStep.x, 0.0)).x;
+        samples[3] = texture2D(tDepth, vec2(0.5) + vec2(0.0, uProbeStep.y)).x;
+        samples[4] = texture2D(tDepth, vec2(0.5) - vec2(0.0, uProbeStep.y)).x;
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 4; j++) {
+                if (samples[j] > samples[j + 1]) {
+                    float tmp = samples[j]; samples[j] = samples[j + 1]; samples[j + 1] = tmp;
+                }
+            }
+        }
+        int count = 0;
+        for (int i = 0; i < 5; i++) { if (samples[i] < 0.9999) count++; }
+        raw = prev;
+        if (count > 0) {
+            int middle = (count - 1) / 2;
+            for (int i = 0; i < 5; i++) {
+                if (i == middle) raw = -perspectiveDepthToViewZ(samples[i], uCameraNear, uCameraFar);
+            }
+        }
+    }
+    raw = clamp(raw, max(uCameraNear, 0.5), uCameraFar);
+    float eased = (!uInitialized || uFocusDistance > 0.0) ? raw : mix(prev, raw, uEase);
     gl_FragColor = vec4(eased, eased, eased, 1.0);
 }`;
 
@@ -78,28 +79,21 @@ float sceneDistance(vec2 uv) {
     return -perspectiveDepthToViewZ(depth, uCameraNear, uCameraFar);
 }
 
-// 0 at the focal plane, ramping to 1 over uNearRange in front of it and
-// uFarRange behind -- asymmetric on purpose, the way a real lens defocuses
-// faster in front of the focal plane than behind it.
 float coc(float dist, float focus) {
     float diff = dist - focus;
-    float t = diff < 0.0 ? clamp(-diff / uNearRange, 0.0, 1.0) : clamp(diff / uFarRange, 0.0, 1.0);
+    float sharpBand = max(0.3, focus * 0.08);
+    float separation = max(0.0, abs(diff) - sharpBand);
+    float range = diff < 0.0 ? max(uNearRange, focus * 0.3) : max(uFarRange, focus * 0.8);
+    float t = clamp(separation / range, 0.0, 1.0);
     return t * t * (3.0 - 2.0 * t);
 }
 
 void main() {
     float focus = texture2D(tFocus, vec2(0.5)).r;
     vec4 centre = texture2D(tDiffuse, vUv);
-    float centreCoc = coc(sceneDistance(vUv), focus);
+    float centreDistance = sceneDistance(vUv);
+    float centreCoc = coc(centreDistance, focus);
 
-    // The common case -- most of a frame sits near the focal plane -- exits
-    // after one depth sample and one colour sample, so the full tap loop
-    // only ever runs over the parts of the frame that are actually blurred.
-    // The threshold is deliberately not tiny: anything under it reads as
-    // fully sharp with no softening at all, which is what keeps a wide
-    // "roughly in focus" middle ground of the frame genuinely crisp instead
-    // of carrying a faint haze everywhere that never quite reads as either
-    // sharp or blurred.
     if (centreCoc < 0.05) { gl_FragColor = centre; return; }
 
     const float GOLDEN = 2.399963;
@@ -110,11 +104,9 @@ void main() {
         float a = float(i) * GOLDEN;
         float r = sqrt((float(i) + 0.5) / float(TAP_COUNT));
         vec2 uv2 = vUv + vec2(cos(a), sin(a)) * r * radiusPx * uTexelSize;
-        float c2 = coc(sceneDistance(uv2), focus);
-        // Weighted by whichever pixel is more out of focus: a sharp edge
-        // must not pick up colour bled in from a blurry background behind
-        // it, but a blurry pixel still gathers normally from its neighbours.
-        float w = max(centreCoc, c2);
+        float neighbourDistance = sceneDistance(uv2);
+        float depthGap = abs(neighbourDistance - centreDistance);
+        float w = 1.0 - smoothstep(max(0.25, centreDistance * 0.02), max(0.5, centreDistance * 0.08), depthGap);
         sum += texture2D(tDiffuse, uv2).rgb * w;
         weight += w;
     }
@@ -131,15 +123,12 @@ export class DofPass extends Pass {
         super();
         this.camera = camera;
         this.needsSwap = true;
-        // Where the effect looks: NDC-space (-1..1) on desktop, following the
-        // existing pointer tracker; main.js resolves the "no pointer yet" /
-        // touch case to screen centre before writing here.
-        this.pointerUV = new THREE.Vector2(0.5, 0.5);
-        // How fast the rack focus follows a new subject. Slower than the
-        // billboard turn -- refocusing is the most noticeable thing this
-        // effect does, and doing it leisurely is what keeps it feeling like
-        // a lens easing across the scene rather than a spotlight snapping.
-        this.easeRate = 2.0;
+        this.focusPoint = null;
+        this._trackedPoint = new THREE.Vector3();
+        this._viewPoint = new THREE.Vector3();
+        this._hasWorldFocus = false;
+        this._initialized = false;
+        this.easeRate = 6.0;
 
         const rtOpts = {
             type: THREE.HalfFloatType, format: THREE.RGBAFormat,
@@ -155,7 +144,9 @@ export class DofPass extends Pass {
             uniforms: {
                 tDepth: { value: null },
                 tPrevFocus: { value: null },
-                uPointerUV: { value: this.pointerUV },
+                uProbeStep: { value: new THREE.Vector2() },
+                uFocusDistance: { value: 0 },
+                uInitialized: { value: false },
                 uCameraNear: { value: camera.near },
                 uCameraFar: { value: camera.far },
                 uEase: { value: 1 }
@@ -219,11 +210,14 @@ export class DofPass extends Pass {
             return;
         }
 
-        const dt = Math.min(deltaTime ?? 1 / 60, 0.1);
+        const dt = Math.max(0, Math.min(deltaTime ?? 1 / 60, 0.1));
 
-        // 1. Probe: sample depth under the pointer, ease against last frame,
+        // 1. Resolve the world subject or sample central geometry,
         // write the single result texel.
         const pm = this._probeMaterial.uniforms;
+        pm.uFocusDistance.value = this.resolveFocusDistance(dt);
+        pm.uInitialized.value = this._initialized;
+        pm.uProbeStep.value.set(0.025 * readBuffer.height / readBuffer.width, 0.025);
         pm.tDepth.value = readBuffer.depthTexture;
         pm.tPrevFocus.value = this._focusRead.texture;
         pm.uCameraNear.value = this.camera.near;
@@ -231,6 +225,7 @@ export class DofPass extends Pass {
         pm.uEase.value = 1 - Math.exp(-this.easeRate * dt);
         renderer.setRenderTarget(this._focusWrite);
         this._probeQuad.render(renderer);
+        this._initialized = true;
         const tmp = this._focusRead; this._focusRead = this._focusWrite; this._focusWrite = tmp;
 
         // 2. Blur, focused on what the probe just found.
@@ -245,6 +240,22 @@ export class DofPass extends Pass {
         renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
         if (this.clear) renderer.clear();
         this._blurQuad.render(renderer);
+    }
+
+    // Ease subject changes in world space; convert to axial camera depth
+    // after movement. Euclidean distance would be wrong off the optical axis.
+    resolveFocusDistance(dt) {
+        if (!this.focusPoint) {
+            this._hasWorldFocus = false;
+            return 0;
+        }
+        if (!this._hasWorldFocus) this._trackedPoint.copy(this.focusPoint);
+        else this._trackedPoint.lerp(this.focusPoint, 1 - Math.exp(-this.easeRate * dt));
+        this._hasWorldFocus = true;
+        this.camera.updateMatrixWorld();
+        this._viewPoint.copy(this._trackedPoint).applyMatrix4(this.camera.matrixWorldInverse);
+        if (this._viewPoint.z >= -this.camera.near) return 0;
+        return Math.min(-this._viewPoint.z, this.camera.far);
     }
 
     dispose() {

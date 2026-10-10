@@ -1,7 +1,7 @@
 // Helper to resolve asset URLs with the active base path (supports GitHub Pages subpaths)
 export function getAssetUrl(path) {
     if (!path) return '';
-    if (/^(?:[a-z]+:)?\/\//i.test(path) || path.startsWith('data:')) {
+    if (/^(?:[a-z]+:)?\/\//i.test(path) || /^(data:|blob:)/.test(path)) {
         return path;
     }
     const base = import.meta.env.BASE_URL || './';
