@@ -1,3 +1,4 @@
+import '../utils/version.js';
 import './studio.css';
 import { el, toast, confirmDialog } from './dom.js';
 import { createGrid } from './grid.js';

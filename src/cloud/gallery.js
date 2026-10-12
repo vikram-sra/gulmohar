@@ -8,7 +8,7 @@ export async function readGallery() {
     }
     const url = galleryUrl();
     if (!url) throw new Error('No published gallery');
-    const response = await fetch(url, { cache: 'no-cache', signal: AbortSignal.timeout(6000) });
+    const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error('Gallery unavailable');
     return response.json();
 }

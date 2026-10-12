@@ -21,9 +21,9 @@ import * as THREE from 'three';
 const TIERS = {
     low: {
         floorLeafCount: 10, microPlantCount: 16,
-        grassCount: 18000, grassRadius: 36, backgroundTrees: 0, vegClumpCount: 20, denseGrassCount: 6,
+        grassCount: 18000, grassRadius: 36, backgroundTrees: 2, vegClumpCount: 20, denseGrassCount: 6,
         shadowMapSize: 1024, shadowIntervalMs: 45, shadowType: THREE.PCFShadowMap,
-        shadowRadius: 1.0, foliageReceiveShadow: false,
+        shadowRadius: 1.0, foliageReceiveShadow: true,
         pixelRatioCap: 1.0, antialias: false, anisotropy: 2, maxTextureSize: 512,
         canopySide: THREE.DoubleSide,
         skySegW: 16, skySegH: 12, dustCount: 0,

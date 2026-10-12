@@ -1,3 +1,4 @@
+import '../utils/version.js';
 import { readGallery } from '../cloud/gallery.js';
 import { ABOUT_FIELDS } from '../cloud/schema.js';
 

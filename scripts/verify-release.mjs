@@ -105,7 +105,19 @@ console.log('\n--- 5. Quality Adaptive Logic ---');
 {
     const qualitySrc = readFileSync(path.join(root, 'src/quality.js'), 'utf8');
     assert(qualitySrc.includes('pixelRatioScale > 0.85'), 'quality.js down() correctly steps from resolution to instanceScale reduction');
-    assert(qualitySrc.includes('backgroundTrees: 0'), 'quality.js low tier sets backgroundTrees to 0');
+    const { QUALITY, resolveQuality } = await import('../src/quality.js');
+    const previousLocation = globalThis.location;
+    try {
+        for (const tier of ['low', 'medium', 'high']) {
+            globalThis.location = { search: `?q=${tier}` };
+            resolveQuality();
+            assert(QUALITY.backgroundTrees >= 2 && QUALITY.foliageReceiveShadow,
+                `${tier} tier preserves tree landmarks and canopy self-shadowing`);
+        }
+    } finally {
+        if (previousLocation === undefined) delete globalThis.location;
+        else globalThis.location = previousLocation;
+    }
 }
 
 console.log(`\n========================================`);

@@ -14,12 +14,13 @@
 // instead of a comment asking someone to remember.
 //
 // Run after `npm run build`:  node scripts/check-bundle.mjs
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const target = path.join(root, 'dist/assets/main.js');
+const entry = readdirSync(path.join(root, 'dist/assets')).find(name => /^main-[\w-]+\.js$/.test(name));
+const target = path.join(root, 'dist/assets', entry || 'main.js');
 
 if (!existsSync(target)) {
     console.error(`[check-bundle] ${path.relative(root, target)} not found -- run "npm run build" first.`);
@@ -53,7 +54,7 @@ const found = FIREBASE_MARKERS.filter((m) => src.includes(m));
 // forever unnoticed.
 // 901: clickable navigation markers -- one projected, distance-scaled DOM
 // ring per place worth going, plus the hover-marker and tilt-clamp work.
-const BASELINE_KB = 905; // raised for on-screen touch arrow navigation and placement camera orientation
+const BASELINE_KB = 906; // mobile landmark fallbacks, readiness-driven loader, and canopy self-shadowing
 const BUDGET_KB = BASELINE_KB + 3;
 
 let failed = false;

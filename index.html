@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -14,7 +14,7 @@
   <meta name="description" content="Gulmohar — a 3D interactive botanical garden featuring a centerpiece Gulmohar tree, a still garden pond and a tranquil gazebo under a real-time celestial sky." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@200;300;400;500&display=swap">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400&family=Outfit:wght@200;300;400;500&display=swap">
   <style>
     /* This page is a 3D scene, not a document: a long press should orbit the
        camera rather than raise a selection loupe, and a double-tap should not
@@ -534,9 +534,10 @@
       text-transform: uppercase; font-weight: 200;
     }
     #loader .bar { width: 120px; height: 1px; background: rgba(37,50,38,0.14); overflow: hidden; }
-    #loader .bar i { display: block; height: 100%; width: 40%; background: var(--gulmohar);
-                     animation: slide 1.4s ease-in-out infinite;
+    #loader .bar i { display: block; height: 100%; width: 0%; background: var(--gulmohar);
                      transition: width 0.4s ease; }
+    #loader .load-status { max-width: 280px; padding: 0 16px; text-align: center; font-size: 13px; color: var(--ink-soft); }
+    #loader .load-link { color: var(--ink-soft); font-size: 12px; text-underline-offset: 4px; }
     #loader.webgl-fallback { background: var(--paper); padding: 24px; }
     #loader .fallback-card {
       max-width: 440px; padding: 32px 28px; background: #EEE6D2;
@@ -711,6 +712,8 @@
       box-shadow: 0 0 12px rgba(217, 80, 47, 0.35);
     }
   </style>
+  <link rel="stylesheet" href="./ui.css">
+  <link rel="stylesheet" href="./src/scene/gardenUI.css">
 </head>
 
 <body>
@@ -730,7 +733,9 @@
 
   <div id="loader">
     <span class="name">Gulmohar</span>
-    <span class="bar"><i></i></span>
+    <span class="bar" aria-hidden="true"><i></i></span>
+    <p id="load-status" class="load-status" role="status">Preparing your garden…</p>
+    <a class="load-link" href="work/">Browse paintings while you wait</a>
   </div>
 
   <script type="module" src="./main.js"></script>

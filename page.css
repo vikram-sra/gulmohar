@@ -1,13 +1,14 @@
+@import "./ui.css";
 /* Shared by /work/ and /about/. Colours are pulled from the 3D scene's own
    pastel palette -- paper sky, ink foliage, the gulmohar's red -- so the flat
    pages read as the same site rather than a separate document. */
 :root {
-  --ground: #F6F1E3;
-  --raised: #EEE6D2;
-  --ink:    #253226;
-  --muted:  #5C6C58;
-  --gold:   #B03D22;
-  --rule:   #93A088;
+  --ground: var(--ui-paper);
+  --raised: var(--ui-inset);
+  --ink:    var(--ui-ink);
+  --muted:  var(--ui-muted);
+  --gold:   var(--ui-accent);
+  --rule:   var(--ui-line);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
@@ -94,3 +95,19 @@ footer.site {
 }
 .studio-link a { color: var(--ink-soft, #5C6C58); }
 .studio-link a:hover { color: var(--gulmohar, #D9502F); }
+
+/* Editorial rhythm shared by collection, about and studio. */
+header.site { align-items: center; }
+header.site nav a { display: inline-flex; align-items: center; min-height: 44px; }
+.eyebrow { margin: 0 0 14px; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--gold); }
+h1 { font-size: clamp(40px, 6vw, 68px); letter-spacing: -.025em; }
+.lede { max-width: 54ch; font-size: 17px; line-height: 1.7; }
+.empty { border-style: solid; border-radius: var(--ui-radius); background: var(--ui-surface); }
+footer.site { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+@media (max-width: 580px) {
+  body { padding-left: max(20px, env(safe-area-inset-left)); padding-right: max(20px, env(safe-area-inset-right)); }
+  header.site { gap: 6px 20px; padding: 24px 0; margin-bottom: 36px; }
+  header.site .name { font-size: 15px; }
+  header.site nav { gap: 16px; }
+  header.site nav a { font-size: 11px; letter-spacing: .07em; }
+}

@@ -83,3 +83,41 @@
     .place-preview .fps-jump-btn { bottom: 52px; }
     .place-toast { bottom: 12px; }
 }
+
+/* Shared editing hierarchy and accessible controls. */
+.place-modal { background: var(--ui-paper); color: var(--ui-ink); border-color: var(--ui-line); font-size: 14px; }
+.place-title { font-family: var(--ui-display); font-size: 28px; }
+.place-head, .place-sidebar, .place-modal-footer { border-color: var(--ui-line); }
+.place-sidebar { background: var(--ui-surface); }
+.place-heading-copy small { font-size: 10px; color: var(--ui-accent); letter-spacing: .14em; }
+.place-step, .place-sidebar-intro, .place-footer-copy { color: var(--ui-muted); font-size: 12px; }
+.place-option, .place-btn, .place-painting-picker { border-color: var(--ui-line); border-radius: 12px; background: var(--ui-surface); min-height: 44px; }
+.place-option { padding: 14px; gap: 4px; }
+.place-option.active { background: #e8eee3; border-color: #78936e; box-shadow: inset 3px 0 #78936e; }
+.place-option small { font-size: 12px; }
+.place-btn { font-size: 13px; }
+.place-btn.primary { background: var(--ui-ink); border-color: var(--ui-ink); }
+.place-btn.primary:hover:not(:disabled) { background: #365442; }
+.place-close { width: 44px; height: 44px; background: var(--ui-inset); border-color: var(--ui-line); }
+.place-btn.round { width: 44px; min-height: 44px; }
+.place-preview-hint { font-size: 12px; border: 1px solid var(--ui-line); box-shadow: 0 4px 12px #25322612; }
+.place-modal :is(button, select, input):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 3px; }
+@media(max-width:760px) {
+  .place-modal { width: calc(100vw - 16px); height: calc(100dvh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
+  .place-title { font-size: 23px; }
+  .place-painting-picker { font-size: 16px; }
+  .place-bar { gap: 8px; }
+  .place-bar .place-btn { min-height: 44px; font-size: 12px; }
+  .place-preview-hint { max-width: calc(100% - 20px); font-size: 11px; }
+  .place-footer-copy { font-size: 11px; }
+  .place-preview .fps-jump-btn, .place-preview .fps-sprint-btn { width: 44px; height: 44px; }
+  .place-preview .fps-arrow-pad { transform: none; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .place-modal-body { grid-template-columns: minmax(0,1fr) 260px; grid-template-rows: minmax(0,1fr); }
+  .place-head { padding: 8px 14px; flex-wrap: nowrap; }
+  .place-heading-copy { flex-basis: auto; }
+  .place-painting-picker { width: 180px; }
+  .place-title { font-size: 20px; }
+  .place-footer-copy { display: none; }
+}

@@ -249,8 +249,8 @@ export function loadGarden(loadingManager) {
         loadGLTF('models/floor_leaves.glb'),
         loadGLTF('models/grass_blades.glb'),
         loadGLTF('models/meadow_clumps.glb'),
-        QUALITY.backgroundTrees > 0 ? loadGLTF('models/banyan.glb') : Promise.resolve(null),
-        QUALITY.backgroundTrees > 0 ? loadGLTF('models/mango.glb') : Promise.resolve(null)
+        loadGLTF('models/banyan.glb'),
+        loadGLTF('models/mango.glb')
     ]).then(([gulmoharGltf, gazeboGltf, leavesGltf, grassBladesGltf, meadowClumpsGltf,
               banyanGltf, mangoGltf]) => {
         // 1. Gulmohar Centerpiece Tree (At 0,0,0)
@@ -315,19 +315,15 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
     // The scene is fill-bound, not draw-call-bound, so this is real budget.
     const isWoody = WOODY_NAME.test(mat.name || '') || WOODY_NAME.test(child.name || '');
 
-    // Canopy cards drop to FrontSide below the top tier: on a phone, halving
-    // the shaded fragments of 500k alpha-tested triangles matters more than
-    // the few leaves that thin out when viewed from behind.
+    // Thin leaf cards must cast from either face, including the upper
+    // faces shading leaves below them. Closed wood stays single-sided.
     mat.side = isWoody ? THREE.FrontSide : QUALITY.canopySide;
-    mat.shadowSide = THREE.FrontSide;
+    mat.shadowSide = isWoody ? THREE.FrontSide : THREE.DoubleSide;
     if (mat.roughness !== undefined) mat.roughness = Math.max(mat.roughness, 0.65);
 
     child.castShadow = true;
-    // Foliage RECEIVING shadow means PCF sampling across ~500k leaf fragments.
-    // It is the first thing worth cutting under pressure and the first worth
-    // buying back: without it leaves take no shadow from the branches above
-    // them and a dense canopy renders as uniformly bright. Trunks always
-    // receive -- there are few of them and the self-shadowing reads.
+    // Preserve canopy self-shadowing on phones too. Resolution and refresh
+    // cadence scale with quality; the actual lighting model stays consistent.
     child.receiveShadow = isWoody || QUALITY.foliageReceiveShadow;
 
     const isFoliage = mat.alphaTest > 0 || mat.transparent ||
@@ -343,7 +339,7 @@ function enhanceFoliageMaterial(mat, child, alphaCut = 0.32) {
             depthPacking: THREE.RGBADepthPacking,
             map: mat.map,
             alphaTest: alphaCut,
-            side: THREE.FrontSide
+            side: isWoody ? THREE.FrontSide : THREE.DoubleSide
         });
         // The photoreal leaf/flower photos read far more saturated and bright
         // than the pastel-graded rest of the scene -- pull them toward their
@@ -512,7 +508,7 @@ function setupGulmohar(gltf) {
             child.castShadow = !isStalk;
             if (wantsWind) injectFoliageWind(child, child.material, { swayFraction: 0.048, speedMult: 0.85 });   // was 0.05/1.0 -- too much sway on the stalk mesh, 48% of the tree's geometry
             // Last, so it chains over every other hook on the material.
-            if (/trunk/i.test(child.material.name || '')) applyCanopyOcclusion(child.material, 3.2, 0.5);
+            applyCanopyOcclusion(child.material, wantsWind ? targetHeight : 3.2, wantsWind ? 0.48 : 0.5);
         });
     } else {
         model = createFallbackTree(0xcc3720, 11.2);
@@ -881,17 +877,14 @@ function standoffDirection(tx, tz, dist) {
 function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
     const group = new THREE.Group();
     group.name = 'BackgroundTrees';
-    const budget = QUALITY.backgroundTrees;
-    if (budget <= 0) return group;
+    // These are named landmarks and placement anchors, never optional scenery.
+    const budget = Math.max(2, QUALITY.backgroundTrees);
 
     const sources = { banyan: banyanGltf, mango: mangoGltf };
-    // One prepared prototype per species, cloned per placement: clones share
-    // the same geometry and texture buffers on the GPU, so six trees cost six
-    // draw sets but only two trees' worth of memory.
+    // One prepared model per named landmark.
     const prepared = {};
     Object.entries(sources).forEach(([kind, gltf]) => {
-        if (!gltf || !gltf.scene) return;
-        const proto = gltf.scene;
+        const proto = gltf?.scene || createFallbackTree(kind === 'banyan' ? 0x44673d : 0x52783e, 12);
         proto.traverse((child) => {
             if (!child.isMesh || !child.material) return;
             const wantsWind = isFoliageForWind(child, child.material);
@@ -910,6 +903,7 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
                     injectFoliageWind(child, child.material, { swayFraction: 0.042, speedMult: 0.75, flutterMult: 0.8, isFruit: false });
                 }
             }
+            if (wantsWind) applyCanopyOcclusion(child.material, BACKGROUND_TREES.find(tree => tree.kind === kind).height, 0.48);
             if (kind === 'banyan') {
                 const names = `${child.name} ${child.material.name}`;
                 // The hanging roots and branch cards are alpha "foliage" to
@@ -931,7 +925,8 @@ function setupBackgroundTrees(banyanGltf, mangoGltf, interactives) {
         const centre = entry.box.getCenter(new THREE.Vector3());
         const scaleFactor = spec.height / Math.max(size.y, 0.001);
 
-        const model = entry.proto.clone(true);
+        // One instance per species: retain custom wind-aware depth materials.
+        const model = entry.proto;
         const w = spec.widen || 1;
         model.scale.set(scaleFactor * w, scaleFactor, scaleFactor * w);
         // Banyan root spread sits gently atop the ground surface (+0.015) so its expansive

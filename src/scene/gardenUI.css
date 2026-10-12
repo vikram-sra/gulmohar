@@ -1,0 +1,37 @@
+/* Garden overlays stay light; reading and editing surfaces use solid paper. */
+.ui-overlay { top: calc(28px + env(safe-area-inset-top)); left: calc(28px + env(safe-area-inset-left)); }
+.ui-overlay h1 { font-size: 18px; letter-spacing: .23em; font-weight: 400; }
+.ui-overlay nav { margin-top: 8px; gap: 18px; }
+.ui-overlay nav a { display: inline-flex; align-items: center; min-height: 44px; font-size: 11px; letter-spacing: .12em; }
+#dock { bottom: calc(24px + env(safe-area-inset-bottom)); }
+#dock .glass-bar-wrapper { gap: 6px; padding: 6px; border-radius: 999px; }
+#dock .glass-btn { width: 44px; height: 44px; flex: 0 0 44px; background: transparent; border-color: transparent; }
+#dock .glass-btn svg { width: 20px; height: 20px; stroke-width: 1.5; }
+#dock .glass-btn:hover { background: var(--hud-btn-bg); }
+#dock .day-btn, #dock .night-btn { border-color: var(--hud-border); }
+#home-orb { width: 52px; height: 52px; }
+#hover-label { bottom: calc(100px + env(safe-area-inset-bottom)); }
+#hover-label .hl-plate { transform: none; max-width: min(420px, calc(100vw - 32px)); padding: 12px 20px; border-radius: 16px; }
+#hover-label .hl-title { font: 400 22px/1.2 var(--ui-display); letter-spacing: -.01em; text-shadow: none; }
+#hover-label .hl-meta { font: 400 12px/1.5 var(--ui-font); letter-spacing: .02em; margin-top: 5px; text-shadow: none; }
+.nav-marker { width: 44px; height: 44px; justify-content: center; padding: 0; }
+.nav-marker .nm-ring { width: 13px; height: 13px; }
+.nav-marker[data-kind="painting"] .nm-ring { border-radius: 3px; border-color: var(--gulmohar); }
+.nav-marker[data-kind="painting"] .nm-ring::after { border-radius: 1px; background: var(--gulmohar); }
+.nav-marker .nm-name { position: absolute; top: 40px; left: 50%; transform: translateX(-50%); opacity: 0; visibility: hidden; font-size: 12px; letter-spacing: .02em; padding: 6px 10px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.nav-marker:hover .nm-name, .nav-marker:focus-visible .nm-name { opacity: 1; visibility: visible; }
+.nav-marker:focus-visible { outline: 2px solid var(--gulmohar); outline-offset: 0; border-radius: 50%; }
+@media (max-width: 520px) {
+  .ui-overlay { top: calc(16px + env(safe-area-inset-top)); left: calc(18px + env(safe-area-inset-left)); }
+  .ui-overlay h1 { font-size: 15px; letter-spacing: .18em; }
+  .ui-overlay nav { gap: 16px; margin-top: 0; }
+  #dock { bottom: calc(18px + env(safe-area-inset-bottom)); }
+  #hover-label { bottom: calc(90px + env(safe-area-inset-bottom)); }
+  #hover-label .hl-title { font-size: 20px; }
+  #hover-label .hl-meta { font-size: 12px; letter-spacing: 0; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  #hover-label { bottom: 18px; left: 18px; right: auto; max-width: 40vw; }
+  #hover-label .hl-plate { padding: 9px 14px; }
+  #dock { width: auto; right: 18px; bottom: 18px; }
+}

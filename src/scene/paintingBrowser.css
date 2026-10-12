@@ -62,3 +62,8 @@
     .painting-browser-panel { top: calc(66px + env(safe-area-inset-top)); right: calc(16px + env(safe-area-inset-right)); }
 }
 @media (prefers-reduced-motion: reduce) { .painting-browser-trigger { transition: none; } }
+.painting-browser-trigger, .painting-browser-controls button, .painting-browser select, .painting-view-button { min-height: 44px; }
+.painting-browser-controls button { flex-basis: 44px; }
+.painting-browser-panel { font-family: var(--ui-font); }
+.painting-browser-actions a { display: inline-flex; align-items: center; min-height: 44px; }
+@media (max-width: 520px) { .painting-browser select { font-size: 16px; } }

@@ -1,10 +1,13 @@
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+const release = process.env.GITHUB_SHA || String(Date.now());
 
 const page = (name) => fileURLToPath(new URL(name, import.meta.url));
 
 export default defineConfig({
     base: './',
+    define: { __APP_VERSION__: JSON.stringify(release) },
+    plugins: [{ name: 'release-version', generateBundle() { this.emitFile({ type: 'asset', fileName: 'version.json', source: JSON.stringify({ version: release }) }); } }],
     // Three real pages, not one app that routes in the browser. Vite's default
     // 'spa' mode answers every unmatched path with index.html, so /work/ and
     // /about/ would silently serve the 3D scene in dev while working in
@@ -31,9 +34,9 @@ export default defineConfig({
                 studio: page('studio/index.html')
             },
             output: {
-                entryFileNames: 'assets/[name].js',
-                chunkFileNames: 'assets/[name].js',
-                assetFileNames: 'assets/[name].[ext]'
+                entryFileNames: 'assets/[name]-[hash].js',
+                chunkFileNames: 'assets/[name]-[hash].js',
+                assetFileNames: 'assets/[name]-[hash].[ext]'
             }
         }
     }

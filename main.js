@@ -1,3 +1,5 @@
+import './src/utils/version.js';
+import { createAnimationClock } from './src/utils/animationClock.js';
 import { restoreGardenView } from './src/scene/gardenView.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -23,7 +25,6 @@ import {
 // load, for collision, is the same one-time cost already paid here for the
 // rope mount's canopy data, just also keeping the trunk half of the result.
 import { fitSurfaces, fitGazeboPosts } from './src/place/surfaces.js';
-import { SITE } from './src/content.js';
 import { getAssetUrl } from './src/utils/paths.js';
 import { FPSNavigator } from './src/controls/fpsNavigator.js';
 
@@ -215,6 +216,7 @@ class GulmoharApp {
         this.pointer = new THREE.Vector2(-2, -2);
 
         this.elapsed = 0;
+        this.natureClock = createAnimationClock(24);
         this.sunAngle = 0;
         this.daySpeed = 0;
         this.motionPaused = true;
@@ -266,39 +268,40 @@ class GulmoharApp {
 
     setupLoadingManager() {
         this.loadingManager = new THREE.LoadingManager();
-        this.loadingManager.onLoad = () => this.revealScene();
-        // A failed asset must not leave the loader up forever; the tree module
-        // substitutes a procedural stand-in and the scene carries on.
-        this.loadingManager.onError = () => this.revealScene();
-        // Drive the loading bar with real progress instead of a looping
-        // animation.  The bar element's width is set directly; CSS handles
-        // the smooth transition.
         this.loadingManager.onProgress = (_url, loaded, total) => {
             const bar = document.querySelector('#loader .bar i');
-            if (bar) {
-                bar.style.animation = 'none';
-                bar.style.width = `${Math.min(100, (loaded / total) * 100)}%`;
-            }
+            // Decoding may discover more textures; progress must never run
+            // backwards or say complete before the first garden frame.
+            this._loadProgress = Math.max(this._loadProgress || 0, Math.min(95, loaded / Math.max(total, 1) * 95));
+            if (bar) bar.style.width = `${this._loadProgress}%`;
         };
-        setTimeout(() => this.revealScene(), 8000);   // last-resort backstop
+        this._loadNotice = setTimeout(() => {
+            const status = document.getElementById('load-status');
+            if (status) status.textContent = 'Still growing your garden. This may take a moment on mobile.';
+        }, 12000);
     }
 
     revealScene() {
         if (this._revealed) return;
         this._revealed = true;
+        clearTimeout(this._loadNotice);
         const loader = document.getElementById('loader');
         if (loader) {
+            const bar = loader.querySelector('.bar i');
+            if (bar) bar.style.width = '100%';
             loader.style.opacity = '0';
             setTimeout(() => loader.remove(), 900);
         }
         this._maybeStartIntro();
     }
 
-    _showWebGLFallback() {
+    _showWebGLFallback(message = 'WebGL is unsupported on this device. You can view all paintings in the portfolio.') {
+        clearTimeout(this._loadNotice);
         const loader = document.getElementById('loader');
         if (!loader) return;
         loader.className = 'webgl-fallback';
-        loader.innerHTML = '<div class="fallback-card"><h2>3D Garden Unavailable</h2><p>WebGL is unsupported on this device. You can view all paintings in the portfolio.</p><a href="work/">View Portfolio &rarr;</a></div>';
+        loader.innerHTML = '<div class="fallback-card"><h2>3D Garden Unavailable</h2><p></p><a href="work/">View Portfolio &rarr;</a></div>';
+        loader.querySelector('p').textContent = message;
         loader.style.opacity = '1';
     }
 
@@ -1094,7 +1097,15 @@ class GulmoharApp {
             // an error state. Mounted onto named anchors within garden.group
             // (see resolveAnchor in paintings.js), so they move correctly if
             // a landmark is ever repositioned.
-            loadPlacements().then(async (data) => {
+            return loadPlacements().then(async (data) => {
+                if (data.unavailable) {
+                    const notice = document.createElement('a');
+                    notice.className = 'gallery-status';
+                    notice.href = './work/';
+                    notice.textContent = 'Collection unavailable · Retry in gallery';
+                    notice.setAttribute('role', 'status');
+                    document.body.append(notice);
+                }
                 this.paintings = mountAllPaintings(garden.group, data.paintings.filter(p => p.id !== this.placeArtworkId), (object, hoverData) => {
                     this._registerHover(object, hoverData);
                 });
@@ -1144,6 +1155,9 @@ class GulmoharApp {
                     this.switchPlaceArtwork(this.placeArtworkId);
                 }
             });
+        }).catch((error) => {
+            console.error('Garden setup failed:', error);
+            this._showWebGLFallback('The garden could not finish loading. Reload to try again, or browse the paintings below.');
         });
     }
 
@@ -1262,7 +1276,7 @@ class GulmoharApp {
         // Start it under its object rather than sliding in from centre.
         this._hoverLabelX = 0;
         label.classList.add('visible');
-        this._trackHoverLabel();
+
     }
 
     /** The registered object carrying this hover data, for label tracking. */
@@ -1453,6 +1467,7 @@ class GulmoharApp {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'nav-marker';
+            btn.dataset.kind = data.kind || 'landmark';
             btn.setAttribute('aria-label', data.title || 'Go here');
             const ring = document.createElement('span');
             ring.className = 'nm-ring';
@@ -1551,6 +1566,7 @@ class GulmoharApp {
         this._occlusionCursor += 1;
 
         const vw = window.innerWidth, vh = window.innerHeight;
+        const occupied = [];
         for (const m of this._navMarkers) {
             m.object.getWorldPosition(_markerWorld);
             const dist = this.camera.position.distanceTo(_markerWorld);
@@ -1564,7 +1580,8 @@ class GulmoharApp {
             const selected = this._labelAnchor === m.object;
             const arrived = dist < m.framingDist * MARKER_ARRIVED_FACTOR;
             const off = selected || arrived || behind || m.occluded
-                || x < -80 || x > vw + 80 || y < -80 || y > vh + 80;
+                || x < 28 || x > vw - 28 || y < 116 || y > vh - 110
+                || occupied.some(p => Math.abs(p.x - x) < 44 && Math.abs(p.y - y) < 44);
             const fade = off ? '0' : '1';
             if (m.fade !== fade) {
                 m.fade = fade;
@@ -1572,8 +1589,11 @@ class GulmoharApp {
                 // A faded marker must not still be clickable, or there is an
                 // invisible button sitting over the painting you are looking at.
                 m.btn.style.pointerEvents = off ? 'none' : 'auto';
+                m.btn.tabIndex = off ? -1 : 0;
+                m.btn.setAttribute('aria-hidden', String(off));
             }
             if (off) continue;
+            occupied.push({ x, y });
             const scale = THREE.MathUtils.clamp(MARKER_REF_DIST_M / Math.max(dist, 0.5),
                 MARKER_MIN_SCALE, MARKER_MAX_SCALE);
             m.btn.style.setProperty('--m-x', `${x.toFixed(1)}px`);
@@ -1593,31 +1613,6 @@ class GulmoharApp {
      * chased the object vertically as well would end up anywhere, including
      * over the artwork, which is the thing it must never cover.
      */
-    _trackHoverLabel() {
-        const label = this._hoverLabelEl;
-        if (!label || !label.classList.contains('visible')) return;
-        const plate = this._hoverPlateEl;
-        const anchor = this._labelAnchor;
-        if (!plate || !anchor) return;
-
-        anchor.getWorldPosition(_hoverWorld);
-        _hoverWorld.project(this.camera);
-        const vw = window.innerWidth;
-        // Behind the camera comes back mirrored, so pin it to the centre
-        // rather than flinging the label to the opposite edge.
-        const onScreen = _hoverWorld.z < 1;
-        const wantX = onScreen ? (_hoverWorld.x * 0.5 + 0.5) * vw : vw / 2;
-
-        // Never let it hang off the edge: the plate is wide, and a landmark
-        // at the far left would otherwise push half the title out of view.
-        const half = plate.offsetWidth / 2;
-        const margin = 12;
-        const clamped = Math.max(half + margin, Math.min(vw - half - margin, wantX));
-        const dx = clamped - vw / 2;
-        // Eased rather than snapped, or it judders as the scene auto-rotates.
-        this._hoverLabelX += (dx - this._hoverLabelX) * 0.18;
-        plate.style.setProperty('--hl-dx', `${this._hoverLabelX.toFixed(1)}px`);
-    }
 
     /**
      * How far the view may tilt, derived rather than fixed.
@@ -2271,9 +2266,6 @@ class GulmoharApp {
 
         // The routes to the flat pages also exist in the always-visible corner
         // nav, since the dock auto-hides and these must never become unreachable.
-        const workBtn = createBtn(icons.work, () => { window.location.href = './work/'; }, 'Work');
-        const aboutBtn = createBtn(icons.about, () => { window.location.href = './about/'; }, 'About');
-
         // No separate "time warp" control any more -- its hold ramped the
         // same daySpeed the motion button's hold already does, and its tap
         // (step 15deg per click) is redundant with a brief hold-and-release
@@ -2285,28 +2277,15 @@ class GulmoharApp {
         // back to the start without first closing the dock.
         const homeBtn = createBtn(icons.home, () => this.resetScene(), 'Home · back to the garden');
 
-        // Walk mode and the motion control are desktop-only for now. Walking
-        // wants WASD and a drag to look; on a phone that becomes a joystick,
-        // a jump button, a sprint button and a look-drag competing for one
-        // thumb, over a garden small enough to see from the orbit view
-        // anyway. Motion goes with it: its tap/hold split (tap pauses, hold
-        // ramps the clock) is a mouse idiom, and a hold on touch reads as a
-        // long-press, not a speed dial.
-        //
-        // Coarse pointer AND multi-touch, the same test quality.js uses:
-        // either alone misidentifies touchscreen laptops and iPads.
+        // Keep walking controls off touch-only screens; play/pause works everywhere.
         const coarse = window.matchMedia?.('(pointer: coarse)')?.matches === true;
         const touch = (navigator.maxTouchPoints || 0) > 1;
         this.touchOnly = coarse && touch;
         wrapper.append(homeBtn);
-        if (!this.touchOnly) wrapper.append(walkBtn, motionBtn);
-        wrapper.append(sunBtn, moonBtn, workBtn, aboutBtn);
+        if (!this.touchOnly) wrapper.append(walkBtn);
+        wrapper.append(motionBtn);
+        wrapper.append(sunBtn, moonBtn);
 
-        if (SITE.instagram) {
-            wrapper.append(createBtn(icons.instagram, () => {
-                window.open(SITE.instagram, '_blank', 'noopener,noreferrer');
-            }, 'Instagram'));
-        }
 
         container.appendChild(wrapper);
 
@@ -2591,8 +2570,13 @@ class GulmoharApp {
         // and the pond freeze solid at the same time stops being a place and
         // becomes a photograph. Only the sun (above) and autoRotate are
         // gated -- this runs always.
-        if (this.garden && this.garden.update) this.garden.update(this.elapsed, dt, this._lightCtx);
-        if (this.dust) this.dust.rotation.y += 0.0002;
+        // Hold leaf, grass, fruit, water and dust poses between 24 Hz ticks.
+        // Camera, controls and rendering continue at the display's cadence.
+        const nature = this.natureClock.advance(dt);
+        if (nature) {
+            this.garden?.update?.(nature.time, nature.delta, this._lightCtx);
+            if (this.dust) this.dust.rotation.y += 0.012 * nature.delta;
+        }
 
         // Damping can overshoot a limit for a frame, so clamp height as a backstop.
         if (this.camera.position.y < 0.2) this.camera.position.y = 0.2;
@@ -2620,7 +2604,7 @@ class GulmoharApp {
         this._updatePaintingFocus();
         // Per frame, not per hover: the garden turns under a held hover, so a
         // label parked where the object used to be drifts off it.
-        this._trackHoverLabel();
+
         this._trackNavMarkers();
         if (this.paintings && updatePaintingBillboards(this.paintings, this.camera, dt)) {
             this._paintingsTurned = true;
@@ -2644,6 +2628,7 @@ class GulmoharApp {
         // never showed. With bloom gone the composer is a render plus one
         // full-screen blit, which is affordable everywhere.
         this.composer.render(dt);
+        if (this._contentReady && !this._revealed) this.revealScene();
     }
 }
 

@@ -4,6 +4,7 @@ import { getAssetUrl } from '../utils/paths.js';
 // Firebase SDK itself must never reach the visitor bundle. Only
 // cloud/backend.js dynamic-imports firebaseBackend.js, and nothing here
 // calls it.
+import { isCloudConfigured } from '../cloud/config.js';
 import { readGallery } from '../cloud/gallery.js';
 import { toPlacementRecord } from '../cloud/schema.js';
 import { QUALITY } from '../quality.js';
@@ -618,7 +619,10 @@ export async function loadPlacements() {
             const paintings = data.artworks.map(a => toPlacementRecord(a, { preferMedium })).filter(Boolean);
             return { version: data.schemaVersion || 1, paintings, landmarks: data.landmarks || [] };
         }
-    } catch { /* Use the bundled arrangement when public storage is unavailable. */ }
+        throw new Error('Invalid gallery');
+    } catch {
+        if (isCloudConfigured()) return { version: 1, paintings: [], landmarks: [], unavailable: true };
+    }
     try {
         const res = await fetch(getAssetUrl('paintings.json'), { cache: 'no-cache' });
         if (!res.ok) return { version: 1, paintings: [], landmarks: [] };

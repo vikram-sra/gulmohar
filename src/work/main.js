@@ -1,3 +1,4 @@
+import '../utils/version.js';
 import { readGallery } from '../cloud/gallery.js';
 import './work.css';
 import { createArtworkViewer, artworkTitle as title, artworkAvailability as availability, artworkMetadata as metadata } from '../gallery/artworkViewer.js';
@@ -22,11 +23,8 @@ async function loadCatalogue() {
         if (!Array.isArray(data.artworks)) throw new Error('Invalid gallery');
         items = data.artworks.filter(a => a.showOnWorkPage !== false).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     } catch {
-        try {
-            const response = await fetch('../paintings.json', { signal: AbortSignal.timeout(6000) });
-            if (!response.ok) throw new Error('Catalogue unavailable');
-            items = (await response.json()).paintings;
-        } catch { return; }
+        list.replaceChildren(el('li', { className: 'empty', role: 'status', textContent: 'The collection could not be loaded. Check your connection and try again.' }, el('button', { type: 'button', textContent: 'Retry', onclick: () => { list.replaceChildren(); loadCatalogue(); } })));
+        return;
     }
     if (!Array.isArray(items)) return;
     document.querySelector('.lede').textContent = 'Explore the collection. Open a painting for a closer look, or visit it in the garden.';

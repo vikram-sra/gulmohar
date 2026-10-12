@@ -51,15 +51,18 @@ export function createArtworkViewer({ items = [], imageUrl, gardenHref, onSelect
         const title = artworkTitle(item);
         const details = el('div', { className: 'artwork-viewer-details' }, el('h2', { textContent: title }),
             el('p', { textContent: artworkMetadata(item) }), el('p', { textContent: item.description || '' }),
-            el('p', { textContent: artworkAvailability(item) }));
+            el('p', { className: 'artwork-availability', textContent: artworkAvailability(item) }));
         const href = gardenHref?.(item);
         if (href) details.append(el('a', { href, textContent: 'See in the garden →' }));
         if ((item.availability || 'available') === 'available') details.append(el('a', {
             href: `mailto:gallery@gulmohar.art?subject=${encodeURIComponent(`Enquiry: ${title}`)}`, textContent: 'Enquire about this painting'
         }));
         const image = el('img', { src: imageUrl(item), alt: title });
-        image.addEventListener('error', () => { image.alt = `${title} — image unavailable`; });
-        content.replaceChildren(image, details);
+        const status = el('p', { className: 'artwork-image-status', role: 'status', textContent: 'Loading painting…' });
+        image.addEventListener('load', () => { status.hidden = true; });
+        image.addEventListener('error', () => { status.textContent = 'Image unavailable. Please try again.'; });
+        if (image.complete && image.naturalWidth) status.hidden = true;
+        content.replaceChildren(el('div', { className: 'artwork-viewer-stage' }, image, status), details);
         if (!dialog.open) { onOpen(); dialog.showModal(); }
         onSelect(item);
     }

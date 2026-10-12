@@ -1,6 +1,21 @@
-.work-tools { display: flex; flex-wrap: wrap; gap: 12px; }
+.work-tools { display: flex; flex-wrap: wrap; gap: 12px; padding: 18px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .work-tools input { flex: 1; min-width: 180px; }
-.work-tools input, .work-tools select { padding: 12px 16px; font: inherit; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; }
-.work-count { color: var(--muted); margin: 18px 0 28px; }
-.works .plate { width: 100%; cursor: zoom-in; min-height: 280px; }
-.works .plate img { height: 300px; object-fit: contain; }
+.work-tools input, .work-tools select { min-height: 48px; padding: 12px 16px; font: inherit; font-size: 15px; color: var(--ink); background: var(--ui-surface); border: 1px solid var(--rule); border-radius: var(--ui-radius); }
+.work-count { color: var(--muted); font-size: 13px; margin: 20px 0 28px; }
+.works { gap: 44px 28px; }
+.works .plate { position: relative; min-height: 0; width: 100%; cursor: zoom-in; aspect-ratio: 4 / 5; padding: 28px; background: #efede4; border: 1px solid var(--rule); border-radius: 4px; transition: background .2s, border-color .2s; }
+.works .plate:hover { background: #e7e8de; border-color: #98aa97; }
+.works .plate img { position: absolute; inset: 28px; width: calc(100% - 56px); height: calc(100% - 56px); min-height: 0; object-fit: contain; filter: drop-shadow(0 8px 10px #2532261c); transition: transform .25s; }
+.works .plate:hover img { transform: scale(1.025); }
+.works figcaption { padding: 2px 2px 0; }
+.works .t { font-size: 24px; line-height: 1.25; margin-bottom: 6px; }
+.works .m { font-size: 13px; line-height: 1.6; }
+.works .s { font-size: 10px; letter-spacing: .12em; margin-top: 10px; }
+.collection-notice { margin: 0 0 24px; padding: 14px 18px; border: 1px solid var(--rule); border-radius: 12px; background: var(--ui-surface); color: var(--muted); font-size: 14px; }
+.collection-notice a { text-underline-offset: 3px; margin-left: 8px; }
+@media (max-width: 580px) {
+  .work-tools { gap: 10px; }
+  .work-tools input, .work-tools select { width: 100%; font-size: 16px; }
+  .works { grid-template-columns: 1fr; gap: 32px; }
+  .works .plate { aspect-ratio: 1 / 1; padding: 26px; }
+}

@@ -324,3 +324,43 @@ dialog.narrow .bottom { justify-content: flex-end; }
   opacity: 0.65;
 }
 .section-note { font-size: 0.8rem; opacity: 0.6; }
+
+/* Artist tools share the public gallery's paper, type and spacing. */
+.studio .btn { min-height: 44px; border-radius: var(--ui-radius); letter-spacing: .01em; }
+.studio .btn.small { min-height: 44px; }
+.studio .btn.add-btn { background: var(--ink); border-color: var(--ink); box-shadow: none; }
+.studio .btn.add-btn:hover { background: #365442; box-shadow: none; }
+.studio .chip { font-size: 10px; letter-spacing: .08em; }
+.studio .section-head { margin-top: 32px; }
+.studio .section-head h2 { font-size: 28px; margin-top: 0; }
+.studio .grid { gap: 24px; }
+.studio .card { border-radius: 16px; }
+.studio .card .t { font-size: 22px; }
+.studio .artifact-row { background: var(--ui-surface); border-radius: 14px; padding: 20px; }
+.studio .field input, .studio .field select, .studio .field textarea, .studio .artifact-fields input { border-radius: 10px; background: var(--ui-surface); }
+.studio .icon-btn, .studio .modal-close-btn { min-width: 44px; min-height: 44px; }
+.studio .menu button { min-height: 44px; border-radius: 8px; }
+.studio .menu { border-radius: 14px; padding: 8px; box-shadow: var(--ui-shadow); }
+.studio dialog.panel { margin: auto; border-radius: 22px; box-shadow: 0 28px 90px #101e1440; }
+.studio dialog.panel::backdrop { background: #14251ea8; backdrop-filter: blur(8px); }
+.studio dialog.panel .inner { padding: 28px; gap: 24px; }
+.studio dialog.panel .modal-head h3 { font-size: 28px; }
+.studio .drop { border-radius: 16px; }
+.studio .gate { margin-top: 9vh; padding: 32px; border: 1px solid var(--rule); border-radius: 24px; background: var(--ui-surface); box-shadow: var(--ui-shadow); }
+.studio .gate h1 { font-size: 40px; margin-bottom: 0; }
+.signin-message { width: 100%; padding: 14px; background: #f5e9df; border-radius: 12px; color: #703723; font-size: 14px; text-align: left; }
+.signin-message[hidden] { display: none; }
+.studio .toast { border-radius: 12px; line-height: 1.5; }
+@media(max-width: 640px) {
+  .studio-bar { margin-left: 0; width: 100%; gap: 8px; }
+  .studio-bar .chip { flex-basis: 100%; border: 0; padding-left: 0; }
+  .studio-bar .btn { flex: 1; padding: 10px; font-size: 13px; }
+  .studio dialog.panel .inner { padding: 20px; }
+  .studio .gate { padding: 26px 22px; }
+  .studio .form { grid-template-columns: 1fr; }
+  .studio .field input, .studio .field select, .studio .field textarea { font-size: 16px; }
+  .studio .artifact-fields { min-width: 0; }
+  .studio dialog.panel .bottom .right-actions { width: 100%; }
+  .studio dialog.panel .bottom .right-actions .btn { flex: 1; }
+}
+@media (max-width: 600px) { .studio dialog.panel.expanded .upload { grid-template-columns: 1fr; } }

@@ -1,0 +1,26 @@
+/* Shared foundations for the garden, public pages and artist tools. */
+:root {
+  --ui-paper: #f7f4eb;
+  --ui-surface: #fffcf5;
+  --ui-inset: #eeeade;
+  --ui-ink: #253b30;
+  --ui-muted: #637064;
+  --ui-accent: #a84730;
+  --ui-line: #d6dbcf;
+  --ui-radius: 12px;
+  --ui-radius-lg: 24px;
+  --ui-shadow: 0 16px 48px #182b211a;
+  --ui-font: 'Outfit', system-ui, sans-serif;
+  --ui-display: 'Newsreader', Georgia, serif;
+}
+:where(button, input, select, textarea) { font-family: var(--ui-font); }
+:where(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--ui-accent); outline-offset: 4px; }
+:where(button, a, summary) { -webkit-tap-highlight-color: transparent; }
+:where(dialog) { overscroll-behavior: contain; }
+:where(button, input, select) { touch-action: manipulation; }
+::selection { background: #cbd8c6; color: var(--ui-ink); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+.version-notice, .gallery-status { position: fixed; z-index: 10000; bottom: calc(100px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 12px 18px; border: 1px solid var(--ui-line); border-radius: 12px; background: var(--ui-paper); color: var(--ui-ink); box-shadow: var(--ui-shadow); font: 14px var(--ui-font); }
+.version-notice button { min-height: 44px; color: inherit; background: transparent; border: 0; text-decoration: underline; font: inherit; cursor: pointer; }

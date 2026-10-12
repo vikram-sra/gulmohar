@@ -5,7 +5,14 @@ import { rememberGardenView } from './gardenView.js';
 /** Compact access to the paintings, independent of walking controls. */
 export function attachPaintingBrowser(app) {
     const entries = [...app.paintings.values()].map(m => m.interactive.data);
-    if (!entries.length) return;
+    if (!entries.length) {
+        const link = document.createElement('a');
+        link.className = 'painting-browser painting-browser-trigger';
+        link.href = './work/';
+        link.textContent = 'View paintings ↗';
+        document.body.append(link);
+        return;
+    }
     const nav = document.createElement('nav');
     nav.className = 'painting-browser';
     nav.setAttribute('aria-label', 'Browse paintings');
